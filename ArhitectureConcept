@@ -1,0 +1,59 @@
+Autonomous Game Dev Agent — Architecture Concept
+
+  What It Is
+
+  A fully autonomous AI agent (Claude Code + Godot MCP) that can implement game logic features end-to-end without human intervention, running in an isolated Docker container.
+
+  The Stack
+
+  - Godot 4.x — the game engine and editor
+  - hi-godot MCP plugin — bridge between Claude and the Godot editor (read/write scenes, nodes, scripts, run scenes, read logs)
+  - Claude Code (--dangerously-skip-permissions) — the agent, fully autonomous, no approval prompts
+  - Xvfb — virtual display so Godot editor runs headless inside Docker
+  - x11vnc — optional layer on top of Xvfb for live human observation
+  - Docker — isolation boundary; agent has full permissions inside the container, zero blast radius outside
+
+  The Autonomous Loop
+
+  write/patch script
+        ↓
+  run scene
+        ↓
+  read logs (errors, print output)
+        ↓
+  fix issues
+        ↓
+  run GUT tests
+        ↓
+  read test results
+        ↓
+  take screenshot / record video as proof
+        ↓
+  done — human reviews artifacts
+
+  What It's Good For
+
+  Game logic oriented tasks that don't require visual judgment: player/NPC behaviours, state machines, combat systems, inventory, input handling, scene transitions, animation states, signal
+  wiring.
+
+  What It's Not Good For
+
+  Shader authoring, UI layout polish, physics feel tuning — anything that requires eyes to evaluate.
+
+  The Proof-of-Work Idea
+
+  The agent doesn't just ship code — it produces evidence. Screenshots and short ffmpeg recordings saved to a /proof folder, captured autonomously during test runs. You review artifacts, not
+  process.
+
+  Open Questions
+
+  - How do you scope and hand off tasks to the agent cleanly?
+  - How do you handle the run/stop cycle reliably in the autonomous loop?
+  - How do you prevent the agent from going off-rails on open-ended tasks?
+  - What does the human review interface look like — just a folder of artifacts?
+  - How do you version/checkpoint between agent runs?
+
+ My questions:
+
+  - What would be the ideal workflow? There will be tasks with human in the loop (me working on godot alternatively with the agent) and fully AFK tasks
+  - How to impose a good tdd strategy in game dev? How to impose good tests?
