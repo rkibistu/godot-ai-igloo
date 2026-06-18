@@ -44,16 +44,3 @@ Autonomous Game Dev Agent — Architecture Concept
 
   The agent doesn't just ship code — it produces evidence. Screenshots and short ffmpeg recordings saved to a /proof folder, captured autonomously during test runs. You review artifacts, not
   process.
-
-  Open Questions
-
-  - How do you scope and hand off tasks to the agent cleanly?
-  - How do you handle the run/stop cycle reliably in the autonomous loop?
-  - How do you prevent the agent from going off-rails on open-ended tasks?
-  - What does the human review interface look like — just a folder of artifacts?
-  - How do you version/checkpoint between agent runs?
-
- My questions:
-
-  - What would be the ideal workflow? There will be tasks with human in the loop (me working on godot alternatively with the agent) and fully AFK tasks
-  - How to impose a good tdd strategy in game dev? How to impose good tests?
