@@ -1,0 +1,18 @@
+; Guinea-pig Godot project for the feasibility prototype (Phase 0).
+; Renderer pinned to gl_compatibility to pair with software OpenGL (Mesa llvmpipe)
+; under Xvfb in a GPU-less container — see plan_prototype.md Phase 1.
+; NOTE: addons (gut, godot_ai) are vendored by the Dockerfile, NOT committed, and
+; deliberately NOT enabled here — Phase 1 isolates "does the editor render".
+
+config_version=5
+
+[application]
+
+config/name="godot-ai-igloo-prototype"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

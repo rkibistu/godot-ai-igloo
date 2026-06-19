@@ -1,0 +1,7 @@
+# Proof artifacts + Godot import cache are runtime output, never committed.
+proof/
+project/.godot/
+project/.import/
+# Addons are fetched + pinned by the Dockerfile, not committed.
+project/addons/gut/
+project/addons/godot_ai/
