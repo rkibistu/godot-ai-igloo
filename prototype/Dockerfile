@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libgl1-mesa-dri mesa-utils libglu1-mesa \
       libvulkan1 mesa-vulkan-drivers vulkan-tools \
       ffmpeg imagemagick \
-      curl ca-certificates git unzip xz-utils \
+      curl ca-certificates git unzip xz-utils iproute2 \
       fontconfig libfontconfig1 \
       libxcursor1 libxinerama1 libxrandr2 libxi6 libxkbcommon0 libasound2t64 \
     && rm -rf /var/lib/apt/lists/*

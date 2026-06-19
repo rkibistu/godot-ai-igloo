@@ -342,3 +342,20 @@ There is little point building past Phase 1 until the editor renders headless.
   `LIBGL_ALWAYS_SOFTWARE=1`. Vulkan/lavapipe path not needed.
   - *Cosmetic, defer:* editor window not maximized to the Xvfb screen; install a cursor
     theme (`adwaita-icon-theme`/`dmz-cursor-theme`) to silence cursor warnings.
+- **Phase 3 — PASS (2026-06-19). The MCP bridge comes up.** With the `godot_ai` plugin
+  enabled (added to `[editor_plugins]` at container runtime), the editor running under
+  Xvfb auto-started the whole chain: `MCP | using uvx (godot-ai==2.7.5)` → spawned the
+  FastMCP server → `MCP | connected to server`. **Both ports listen** (`ss`):
+  `127.0.0.1:9500` (WS) and `127.0.0.1:8000` (HTTP `/mcp`), both owned by the
+  uvx-spawned `python`. A real **MCP `initialize` + `tools/list`** over streamable-http
+  (official `mcp` client) returned **41 tools** (incl. `node_create`, `scene_open`/
+  `scene_save`, `session_activate`, `test_run`, `project_run`). Screenshot
+  `proof/phase3_editor_opengl3.png` shows the **Godot AI dock with a green "Connected"**
+  status. Driver path identical to Phase 1.
+  - *Key facts learned:* (a) The headless-disable gate (`--headless`/`display=="headless"`)
+    is the reason we must run `--editor` under Xvfb — verified it stays open here.
+    (b) `uvx --from godot-ai==2.7.5 godot-ai` **needs PyPI egress at runtime** (~uvx
+    cold-start + fetch). For the amnesiac `--rm` system, pre-warm the uv cache or
+    pip-install the server into the image. (c) **Versioning is decoupled:** dock/plugin
+    report `v2.7.5`, but the running server's `serverInfo.version` is `3.4.2` — connected
+    cleanly with no incompatibility warning, but understand this before pinning for real.
