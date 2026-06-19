@@ -136,6 +136,52 @@ server's own `initialize` instructions).
 
 ---
 
+## Phase 4 (2026-06-19) — Claude Code drives the editor: CONFIRMED
+
+The third-scariest assumption — that an LLM agent can drive the editor *unattended*
+through MCP and actually change the project — is **true**. This is the phase that proves
+the system can do work, not just connect.
+
+### What worked
+- **One headless instruction → a real, on-disk change.** `claude -p "...use the godot MCP
+  tools to session_activate, add a Node2D 'Marker' to main.tscn, scene_save..."` ran with
+  no human in the loop and produced `[node name="Marker" type="Node2D" parent="."]` in
+  `main.tscn`. **Verdict is the file diff (`proof/main.diff`), never Claude's word.**
+- **The full chain is visible in the editor log:** `Session connected: project@… (pid=274,
+  Godot 4.6.3)` → `ListToolsRequest` → `CallToolRequest`×N →
+  `MCP | [recv] create_node({"name":"Marker",…,"type":"Node2D"})`. So Claude → HTTP :8000
+  → WS :9500 → editor → disk, end to end.
+- **Auth via Pro subscription token.** `claude setup-token` → injected as
+  `CLAUDE_CODE_OAUTH_TOKEN` through `docker run -e` (passthrough, never in a file or the
+  image). Worked first try once the root gate below was cleared.
+
+### Gotchas & how we handled them (both matter for the real system)
+- **`--dangerously-skip-permissions` is refused under root** (the container's default
+  user): *"cannot be used with root/sudo privileges for security reasons"* — Claude exits
+  immediately, does nothing. **Fix: `IS_SANDBOX=1`** in the env for the `claude` call
+  (the ephemeral `--rm` container genuinely is a sandbox). Verified both forms clear the
+  gate. The real system must set `IS_SANDBOX=1` or run Claude as a non-root user.
+- **The editor re-serializes the whole `.tscn` on first save.** The diff wasn't a clean
+  one-liner — Godot also added `uid="uid://…"` to the scene + ext_resource, added
+  `unique_id=…` to nodes, and dropped `load_steps`. Expected Godot behaviour. **Implication:
+  git-diff verification in the real system will see editor-normalized noise; assert on the
+  meaningful line (the new node), not on diff size.**
+- **On-wire op name differs from the tool name:** the advertised MCP tool is `node_create`,
+  but the dispatch verb in the editor log is `create_node`. Cosmetic, but don't be thrown
+  by it when grepping logs.
+- **Claude Code in the image:** native installer (`curl -fsSL https://claude.ai/install.sh
+  | bash`) → `/root/.local/bin/claude` (v2.1.183), no Node needed. Registered the server
+  with `--mcp-config <file>` (explicit, deterministic for `-p`) rather than a project
+  `.mcp.json`, which would need interactive first-use approval that can't happen headless.
+
+### Implication for Phase 5
+The write path works. Next is the *objective done-gate* with zero LLM involvement: a plain
+script runs the scene headless + GUT from CLI and decides PASS/FAIL from exit codes /
+sentinel / `gut.xml`. The Phase-4 finding that the editor reformats scenes on save is also
+relevant to Phase 5's "commit/restore `.godot` import cache" question.
+
+---
+
 ## How to reproduce
 
 ```sh
@@ -147,4 +193,11 @@ cd prototype
 # -> prototype/proof/phase3_tools.txt          (tools/list = 41)
 # -> prototype/proof/phase3_editor_opengl3.png (dock shows green "Connected")
 # -> prototype/proof/phase3_initialize.txt, editor.log
+
+# Phase 4 needs a Claude auth token, passed through from the host env:
+claude setup-token                          # one-time, in a normal terminal -> prints token
+export CLAUDE_CODE_OAUTH_TOKEN=<that-token>
+./scripts/02_phase4.sh           # Claude drives the editor via MCP, mutates main.tscn
+# -> prototype/proof/main.diff                 (the verdict: 'Marker' Node2D added)
+# -> prototype/proof/main.after.tscn, claude_output.log, phase4_editor_opengl3.png
 ```

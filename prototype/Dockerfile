@@ -41,6 +41,13 @@ RUN git clone --depth 1 --branch v2.7.5 https://github.com/hi-godot/godot-ai.git
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
+# --- Claude Code CLI (Phase 4: the agent that drives the editor via MCP) ---
+# Native self-contained installer -> /root/.local/bin/claude (already on PATH).
+# Unpinned (prototype). Auth is injected at runtime via CLAUDE_CODE_OAUTH_TOKEN,
+# never baked into the image. If the native installer ever fails, the fallback
+# is Node + `npm install -g @anthropic-ai/claude-code`.
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
 # --- Guinea-pig project source (committed) merges on top of the vendored addons ---
 COPY project/ /project/
 # --- In-container helper scripts ---

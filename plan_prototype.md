@@ -359,3 +359,19 @@ There is little point building past Phase 1 until the editor renders headless.
     pip-install the server into the image. (c) **Versioning is decoupled:** dock/plugin
     report `v2.7.5`, but the running server's `serverInfo.version` is `3.4.2` — connected
     cleanly with no incompatibility warning, but understand this before pinning for real.
+- **Phase 4 — PASS (2026-06-19). The agent does work, verified on disk.** Claude Code,
+  running fully headless in the container, was given one instruction and the `godot` MCP
+  server. The editor log shows the whole chain firing: `Session connected: project@…
+  (pid=274, Godot 4.6.3)` → `ListToolsRequest` → `CallToolRequest` ×N →
+  `MCP | [recv] create_node({"name":"Marker",…,"type":"Node2D"})`. **Objective verdict
+  from `git`-style diff** (`proof/main.diff`): `main.tscn` gained
+  `[node name="Marker" type="Node2D" parent="."]` — i.e. the change is **on disk**, not
+  just claimed. Auth: a `claude setup-token` OAuth token (Pro sub) injected as
+  `CLAUDE_CODE_OAUTH_TOKEN` via `docker run -e` (never baked in).
+  - *Key facts learned:* (a) **`--dangerously-skip-permissions` is refused as root** —
+    cleared with `IS_SANDBOX=1` (true for an ephemeral `--rm` container). The real system
+    must set it or run Claude as non-root. (b) **The editor re-serializes the whole scene
+    on save** — the diff also added `uid=`/`unique_id=` and dropped `load_steps`. So
+    git-diff verification in the real system sees *editor-normalized* diffs, not surgical
+    one-liners; assert on the meaningful node line, not on a minimal diff. (c) The on-wire
+    op is `create_node` (dispatch verb) even though the advertised MCP tool is `node_create`.
