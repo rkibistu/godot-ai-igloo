@@ -222,6 +222,45 @@ avoid paying the per-cold-container import each run.
 
 ---
 
+## Phase 6 (2026-06-19) — thin end-to-end inner loop: CONFIRMED
+
+The concept's whole inner loop, once, in a single cold container. **PASS.**
+
+### What worked
+- **A real red → green task.** An acceptance test ("`main.tscn` must contain a child
+  `Node2D` named `Marker`") is **injected into the ephemeral container at runtime** (never
+  committed — that would break Phase 5's clean run). It encodes the objective as a
+  machine-checkable spec: "a task arrives."
+- **Same referee, before and after.** The *unchanged* `50_gate.sh` judges: BEFORE Claude →
+  **RED** (`gut.before.xml` `failures="1"`), AFTER Claude → **GREEN** (`gut.after.xml`
+  `failures="0"`). Reusing the exact Phase 5 gate is what makes the demo honest.
+- **Claude closed the gap via MCP** (the proven Phase 4 action: `node_create` Marker +
+  `scene_save`), `claude_exit=0`, Marker on disk in `main.diff`.
+- **Verdict from files only:** `PASS  iff  gate_before != 0  AND  gate_after == 0  AND
+  Marker grep'd in main.after.tscn` → written to `proof/result.txt`.
+
+### Gotchas & how we handled them
+- **Tear the editor down before the AFTER gate.** Two godot processes on the same project
+  (editor + headless gate run) can contend on the `.godot` import cache; kill the editor +
+  `sleep 3` first.
+- **Windowed-game capture is timing-fragile.** We extend `main.gd`'s self-quit to 8s *after*
+  both gates (affects no verdict) and grab with ffmpeg/`import`, but the artifacts come out
+  small/near-blank — the grab races godot's slow llvmpipe startup. The **editor screenshot
+  (29K) is the reliable rendering proof**; the gameplay clip is bonus, and live observation
+  is descoped anyway. Real-system fix: gate the capture on a deterministic "rendered"
+  signal, not a wall-clock `sleep`.
+- **No-token pre-check pays off.** The acceptance-test + gate wiring (red→green) was
+  validated against the image with a throwaway helper *before* spending a Pro token; only
+  the already-proven Claude/MCP step then needed the real run.
+
+### Bottom line
+All in-scope exit criteria are green (4 of 4; VNC descoped). The feasibility question
+— "does godot + hi-godot work in a GPU-less container well enough for an autonomous,
+objectively-judged dev loop?" — is answered **yes**. Next is the real outer loop
+(`plan_workflow.md`): GitHub-as-DB, ephemeral runners, triage, etc.
+
+---
+
 ## How to reproduce
 
 ```sh
@@ -246,4 +285,12 @@ export CLAUDE_CODE_OAUTH_TOKEN=<that-token>
 # -> prototype/proof/gut.clean.xml  failures="0"  + gut.clean.log, run.clean.log  (PASS)
 # -> prototype/proof/gut.break.xml  failures="1"  + gut.break.log, run.break.log  (FAIL)
 # Script exits 0 iff clean PASSES and broken FAILS (the honesty flip).
+
+# Phase 6 needs the Claude token too (drives Claude via MCP, like Phase 4):
+export CLAUDE_CODE_OAUTH_TOKEN=<token>
+./scripts/04_phase6.sh           # thin end-to-end: inject task -> gate RED ->
+                                 # Claude fixes via MCP -> gate GREEN -> proof
+# -> prototype/proof/result.txt              (VERDICT: PASS, the red->green loop)
+# -> prototype/proof/gut.before.xml (failures=1) -> gut.after.xml (failures=0)
+# -> prototype/proof/main.diff, phase6_editor_opengl3.png, game_shot.png, run.mp4
 ```

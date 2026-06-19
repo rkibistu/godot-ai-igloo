@@ -313,7 +313,13 @@ The prototype **succeeds** when, in a GPU-less container, we have:
    not a priority for this feasibility prototype.
 3. The MCP bridge up and Claude mutating the project through it (Phases 3–4). ✅
 4. An objective, LLM-free done-gate (Phase 5). ✅
-5. Proof artifacts + a single chained inner-loop run (Phase 6). ❌ (next)
+5. Proof artifacts + a single chained inner-loop run (Phase 6). ✅
+
+**All in-scope criteria green (4 of 4; VNC descoped). The prototype SUCCEEDS:** in a
+GPU-less container, an autonomous Claude→MCP→editor change is objectively judged
+red→green by an LLM-free gate. The "godot + hi-godot in a container" feasibility question
+is answered **yes** — the real GitHub/ephemeral outer loop in `plan_workflow.md` can be
+built on these findings.
 
 Any ❌ is itself a valuable result: it tells us precisely which assumption in
 `plan_workflow.md` needs to change *before* we build the real system.
@@ -396,3 +402,24 @@ There is little point building past Phase 1 until the editor renders headless.
     unambiguous safety net (kill → rc 124 → correctly FAILs). (d) Breaking only the *test*
     (not the logic) is the cleanest honesty demo: Gate 1 stays green, Gate 2 flips, and the
     ANDed verdict goes red — proving both gates and the combiner.
+
+- **Phase 6 — PASS (2026-06-19). The whole inner loop runs cold, end-to-end.** One run,
+  one fresh container: a task (acceptance test "`main.tscn` must contain a `Marker`
+  Node2D") is **injected at runtime** → the *real* Phase 5 gate judges it **RED** → Claude
+  satisfies it **via MCP** (adds the Marker, `scene_save`) → the *same* gate re-judges it
+  **GREEN** → proof captured → `result.txt` written. **Objective red→green signature:**
+  `gate_before rc=1` (`gut.before.xml` `failures="1" tests="3"`) → `gate_after rc=0`
+  (`gut.after.xml` `failures="0" tests="3"`), with `[node name="Marker" type="Node2D"
+  parent="."]` on disk (`main.diff`). The verdict is derived only from gate exit codes +
+  a `grep` on the scene file — the LLM's report is never trusted.
+  - *Key facts learned:* (a) **The acceptance test is injected into the ephemeral
+    container, never committed** — committing a deliberately-red test would break Phase 5's
+    clean run. This models "a task arrives" as a machine-checkable spec. (b) **Reusing the
+    unchanged `50_gate.sh` as the before/after judge** is what makes the demo honest: the
+    same referee that passes clean code is the one that flips on the agent's work. (c) The
+    editor is **torn down before the AFTER gate** to avoid two godot processes contending
+    on the project/import cache. (d) **Editor rendering is solid** (29K
+    `phase6_editor_*.png`); the *windowed-game* capture (`game_shot.png`/`run.mp4`) is a
+    thin, timing-fragile bonus (small/near-blank) — fine, since live observation is
+    descoped. For the real system, a reliable gameplay clip would need the scene to stay up
+    on a deterministic signal rather than a wall-clock `sleep`.
