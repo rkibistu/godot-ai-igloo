@@ -308,11 +308,12 @@ build the real GitHub/ephemeral outer loop from `plan_workflow.md`.
 
 The prototype **succeeds** when, in a GPU-less container, we have:
 
-1. The Godot editor rendering under Xvfb (Phase 1). ✅/❌
-2. Live VNC observation from the host (Phase 2). ✅/❌
-3. The MCP bridge up and Claude mutating the project through it (Phases 3–4). ✅/❌
-4. An objective, LLM-free done-gate (Phase 5). ✅/❌
-5. Proof artifacts + a single chained inner-loop run (Phase 6). ✅/❌
+1. The Godot editor rendering under Xvfb (Phase 1). ✅
+2. ~~Live VNC observation from the host (Phase 2).~~ **DESCOPED** — live observation is
+   not a priority for this feasibility prototype.
+3. The MCP bridge up and Claude mutating the project through it (Phases 3–4). ✅
+4. An objective, LLM-free done-gate (Phase 5). ✅
+5. Proof artifacts + a single chained inner-loop run (Phase 6). ❌ (next)
 
 Any ❌ is itself a valuable result: it tells us precisely which assumption in
 `plan_workflow.md` needs to change *before* we build the real system.
@@ -375,3 +376,23 @@ There is little point building past Phase 1 until the editor renders headless.
     git-diff verification in the real system sees *editor-normalized* diffs, not surgical
     one-liners; assert on the meaningful node line, not on a minimal diff. (c) The on-wire
     op is `create_node` (dispatch verb) even though the advertised MCP tool is `node_create`.
+
+- **Phase 5 — PASS (2026-06-19). The objective, LLM-free done-gate works AND is honest.**
+  A plain shell script (`scripts/50_gate.sh`) decides PASS/FAIL from exit codes + `grep`
+  on files, with **zero** Claude/MCP/editor/network involvement. Two ANDed primitives:
+  **Gate 1 (run-scene)** — `godot --headless … main.tscn` must exit 0, print the sentinel
+  `PROTO_SENTINEL_READY`, and emit no `ERROR`; **Gate 2 (GUT)** — `gut_cmdln.gd -gexit`
+  must return exit 0. The host driver (`scripts/03_phase5.sh`) runs it **twice** to prove
+  the referee is honest: **clean → PASS (rc 0)**, **deliberately broken → FAIL (rc 1)**.
+  Objective proof in the JUnit XML: `gut.clean.xml` = `failures="0" tests="2"`,
+  `gut.break.xml` = `failures="1" tests="2"`.
+  - *Key facts learned:* (a) **GUT must be ≥ 9.4.0 on Godot 4.6** — 9.3.x declares
+    `static var Logger`, which shadows Godot 4.6's new **native `Logger`** class and fails
+    to even load (cascading parse errors; the run then hung until our `timeout`). Bumped
+    the Dockerfile pin 9.3.1 → **v9.6.0**, which renamed it `GutLogger`. (b) **`-gexit`
+    returns a non-zero process exit on test failure** (1 here) — so GUT's exit code alone
+    is a sufficient Gate-2 signal; the XML is a bonus artifact. (c) **`tee` masks godot's
+    exit code** — recovered via `${PIPESTATUS[0]}`; an OS-level `timeout` is the
+    unambiguous safety net (kill → rc 124 → correctly FAILs). (d) Breaking only the *test*
+    (not the logic) is the cleanest honesty demo: Gate 1 stays green, Gate 2 flips, and the
+    ANDed verdict goes red — proving both gates and the combiner.

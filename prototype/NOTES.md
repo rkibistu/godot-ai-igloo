@@ -182,6 +182,46 @@ relevant to Phase 5's "commit/restore `.godot` import cache" question.
 
 ---
 
+## Phase 5 (2026-06-19) — objective, LLM-free done-gate: CONFIRMED
+
+A plain shell script decides PASS/FAIL with **zero** Claude/MCP/editor/network. This is
+the referee the autonomous loop trusts instead of the agent's word.
+
+### What worked
+- **Gate 1 (run-scene):** `godot --headless --path /project res://scenes/main.tscn` →
+  assert `exit 0` **and** sentinel `PROTO_SENTINEL_READY` present **and** no `ERROR`.
+  `main.gd` self-quits via a 1s timer so it terminates deterministically.
+- **Gate 2 (GUT):** `godot --headless -s res://addons/gut/gut_cmdln.gd -gdir=res://test
+  -gexit -gjunit_xml_file=/proof/gut.<tag>.xml` → assert process `exit 0`.
+- **Verdict = Gate1 AND Gate2**, printed once, derived only from exit codes + `grep`.
+- **Honesty proven by the flip:** the host driver runs the gate twice — clean → PASS
+  (rc 0), deliberately broken → FAIL (rc 1). Proof in the JUnit XML:
+  `gut.clean.xml` `failures="0" tests="2"` vs `gut.break.xml` `failures="1" tests="2"`.
+
+### Gotchas & how we handled them
+- **GUT must be ≥ 9.4.0 on Godot 4.6.** 9.3.x declares `static var Logger`, which shadows
+  Godot 4.6's new **native `Logger`** class → parse error → GUT won't load (cascade of
+  `get_logger`/`set_gut` nil errors), and the process hangs until `timeout` (rc 124).
+  Fixed by pinning **GUT v9.6.0** in the Dockerfile (renamed to `GutLogger`). *Lesson:
+  third-party Godot addons need a version compatible with the exact engine version — the
+  real system must pin/verify GUT vs Godot together.*
+- **`-gexit` sets a non-zero process exit on failure** (1 here), so GUT's exit code is a
+  sufficient signal; the JUnit XML is a bonus human-readable artifact.
+- **`tee` masks the real exit code** — recover via `${PIPESTATUS[0]}`. An OS-level
+  `timeout` wraps both godot calls as the unambiguous safety net (kill → rc 124 → FAIL).
+- **Sabotage is ephemeral & safe:** `break` mode `sed`-corrupts a GUT assertion *inside*
+  the `--rm` container; `/project` is COPY'd into the image, so the committed host source
+  is untouched.
+
+### Implication for Phase 6
+The done-gate is buildable and trustworthy. Phase 6 chains it after a Claude/MCP change:
+cold container → Claude edits via MCP (Phase 4) → run this gate (Phase 5) → capture proof
+(ffmpeg/screenshot off `:99`) → write `/proof/result.txt`. Carry-forward for the real
+system: pin GUT to the engine version, and pre-build/commit the `.godot` import cache to
+avoid paying the per-cold-container import each run.
+
+---
+
 ## How to reproduce
 
 ```sh
@@ -200,4 +240,10 @@ export CLAUDE_CODE_OAUTH_TOKEN=<that-token>
 ./scripts/02_phase4.sh           # Claude drives the editor via MCP, mutates main.tscn
 # -> prototype/proof/main.diff                 (the verdict: 'Marker' Node2D added)
 # -> prototype/proof/main.after.tscn, claude_output.log, phase4_editor_opengl3.png
+
+./scripts/03_phase5.sh           # Phase 5: LLM-free done-gate, run clean THEN broken
+# (no token, no network needed at runtime)
+# -> prototype/proof/gut.clean.xml  failures="0"  + gut.clean.log, run.clean.log  (PASS)
+# -> prototype/proof/gut.break.xml  failures="1"  + gut.break.log, run.break.log  (FAIL)
+# Script exits 0 iff clean PASSES and broken FAILS (the honesty flip).
 ```

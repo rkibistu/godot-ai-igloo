@@ -28,8 +28,10 @@ RUN curl -fsSL -o /tmp/godot.zip \
 
 # --- Vendored addons, pinned (fetched before project COPY for layer caching) ---
 RUN mkdir -p /project/addons
-# GUT (Godot Unit Test) 9.3.1 — Phase 5 done-gate
-RUN git clone --depth 1 --branch 9.3.1 https://github.com/bitwes/Gut.git /tmp/gut \
+# GUT (Godot Unit Test) 9.6.0 — Phase 5 done-gate.
+# Must be >= 9.4.0 for Godot 4.6: earlier GUT declares `static var Logger`,
+# which shadows Godot 4.6's new native `Logger` class and fails to load.
+RUN git clone --depth 1 --branch v9.6.0 https://github.com/bitwes/Gut.git /tmp/gut \
     && cp -r /tmp/gut/addons/gut /project/addons/gut \
     && rm -rf /tmp/gut
 # hi-godot/godot-ai v2.7.5 — the MCP plugin under test (addon at plugin/addons/godot_ai)
