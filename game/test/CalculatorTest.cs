@@ -11,4 +11,10 @@ public class CalculatorTest
     {
         AssertInt(Calculator.Add(2, 3)).IsEqual(5);
     }
+
+    [TestCase]
+    public void Multiply_returns_product()
+    {
+        AssertInt(Calculator.Multiply(2, 3)).IsEqual(6);
+    }
 }

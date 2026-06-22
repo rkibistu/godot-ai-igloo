@@ -8,6 +8,7 @@
 #     -v "$PWD/game:/project" -v "$PWD/scripts:/scripts" -v "$PWD/proof:/proof" \
 #     godot-ai-igloo:dev bash /scripts/smoke.sh
 set -uo pipefail
+ulimit -c 0   # no core dumps from Godot's messy GL teardown on kill
 export DISPLAY=:99
 mkdir -p /proof
 
@@ -27,7 +28,7 @@ sleep 25
 kill -0 "$EDPID" 2>/dev/null && echo "editor_alive=yes" || echo "editor_alive=NO"
 ffmpeg -y -f x11grab -video_size 1600x900 -i :99 -frames:v 1 /proof/smoke_render.png \
     >/proof/ffmpeg.log 2>&1
-kill "$EDPID" 2>/dev/null
+kill -9 "$EDPID" 2>/dev/null
 grep -m1 -iE "llvmpipe|OpenGL API" /proof/editor.log || true
 ls -la /proof/smoke_render.png 2>/dev/null || echo "NO SCREENSHOT"
 

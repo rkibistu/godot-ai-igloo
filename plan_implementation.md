@@ -181,3 +181,31 @@ proved GDScript). Test runner = **gdUnit4** (decided).
 - Every run yields a durable GitHub result — Ready PR or flagged Draft PR.
 - No auto-retry. Merge + conflict-resolution stay human and manual.
 - The agent is a distinct **bot** identity; "last author ≠ bot" drives the fix loop.
+
+---
+
+## Build log
+
+- **Phase 1 — DONE (2026-06-22).** The C# inner loop is validated end-to-end in a
+  GPU-less container. Foundation image (`docker/Dockerfile`: Ubuntu 24.04 + Godot 4.6.3
+  **mono** + .NET 8 + Xvfb/mesa + uv + Claude + gh) builds clean (~2.5 GB). Proven:
+  - **Mono editor renders** under Xvfb via Mesa **llvmpipe** (`--rendering-driver opengl3`
+    + `LIBGL_ALWAYS_SOFTWARE=1`).
+  - **gdUnit4 C# tests run headless** via `dotnet test` — pinned `gdUnit4.api` 5.0.0 +
+    `gdUnit4.test.adapter` 3.0.0 + `Microsoft.NET.Test.Sdk` 17.14.1, `Godot.NET.Sdk`
+    4.6.3; honest red↔green exit codes.
+  - **MCP drives C# scenes:** `session_activate → node_create → script_attach(.cs) →
+    scene_save` works; `script_create`/`patch`/`test_run` are GDScript-only → the agent
+    writes `.cs` **directly** (per the work model).
+  - **4-clause done-gate** (`scripts/gate.sh`) passes all clauses and captures a
+    **non-blank** proof video + still of a deterministic-quit Issue scene
+    (`game/test/scenes/issue_0.tscn`).
+  - **Binary proof** (`scripts/binary_proof.sh`): a tiny C# change flips the gate
+    **red (rc=1) → green (rc=0)** in fresh `--rm` containers, judged only by exit codes.
+  - *Hygiene:* `--audio-driver Dummy` silences ALSA noise; gate greps script/exception
+    markers (not generic engine `ERROR:`); editor teardown uses `kill -9`/graceful MCP
+    quit to avoid the software-GL SIGSEGV core dump.
+  - *Deferred to lifecycle phases (2/3):* image **finalization**. Baking `game/` is wrong
+    for the amnesiac model (the container clones the repo fresh per run); what to bake
+    (godot_ai addon, uv prewarm) vs clone, and the **import-cache strategy** (commit
+    `.godot/` vs rebuild per run), is a Phase-2/3 decision.

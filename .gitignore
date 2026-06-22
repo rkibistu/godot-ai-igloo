@@ -1,6 +1,10 @@
 # Build / run artifacts captured during validation
 proof/
 
+# Core dumps (Godot's software-GL teardown can SIGSEGV on SIGTERM)
+core
+**/core
+
 # Godot / .NET build output (also ignored per-project in game/.gitignore)
 **/.godot/
 **/.mono/
