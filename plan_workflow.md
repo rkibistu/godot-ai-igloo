@@ -1,5 +1,12 @@
 # Autonomous Game Dev Agent — Implementation Plan
 
+> **Refined / partly superseded (2026-06-22).** A later grilling session updated several
+> decisions below — see `plan_implementation.md` (the phased build plan) and
+> `docs/adr/0002` & `0003`. Notably: **C#**, not GDScript; the **OAuth subscription
+> token**, not `ANTHROPIC_API_KEY`; and the **generalized 4-clause done-gate**. Treat
+> this file as the historical design record; `plan_implementation.md` is authoritative
+> for the build.
+>
 > This plan is the durable record of a design/grilling session. It is written to be
 > self-contained: a fresh implementation session with no memory of that conversation
 > should be able to build from it. The original concept lives in `ArhitectureConcept`.
