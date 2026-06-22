@@ -1,0 +1,10 @@
+# Godot
+.godot/
+# .NET
+.mono/
+bin/
+obj/
+*.csproj.user
+# Third-party addons: fetched at image-build time, not committed (like the prototype)
+/addons/gdUnit4/
+/addons/godot_ai/

@@ -1,0 +1,8 @@
+# Build / run artifacts captured during validation
+proof/
+
+# Godot / .NET build output (also ignored per-project in game/.gitignore)
+**/.godot/
+**/.mono/
+**/bin/
+**/obj/

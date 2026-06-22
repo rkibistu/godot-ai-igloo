@@ -10,9 +10,9 @@ implementation details.
 **Test suite**:
 The full set of automated tests, run headless by the [[Done-gate]] behind a **stable
 contract**: one command runs everything and returns exit 0 (pass) / non-zero (fail);
-a machine-readable report is a bonus, not required. Scripting is C#, so the concrete
-runner (gdUnit4 vs Chickensoft GoDotTest) is **deferred** and chosen empirically at
-Phase-1 inner-loop validation — nothing else in the flow depends on which. See ADR-0002.
+a machine-readable report is a bonus, not required. Scripting is C#; the runner is
+**gdUnit4** (chosen 2026-06-22), invoked behind this contract so it stays swappable.
+See ADR-0002.
 _Avoid_: "GUT" (GDScript-only; no longer used), "unit tests" (the suite includes
 scene/integration tests).
 

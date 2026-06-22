@@ -1,0 +1,8 @@
+.git
+**/.godot
+**/.mono
+**/bin
+**/obj
+proof
+prototype
+*.md

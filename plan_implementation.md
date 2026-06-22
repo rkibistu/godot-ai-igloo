@@ -42,7 +42,7 @@ rebuilt-and-revalidated up front (it also has to absorb the C# pivot).
 | Area | Decision | Ref |
 |---|---|---|
 | **Scripting language** | **C#** (reverses the prototype's GDScript). Image needs the .NET Godot build + .NET SDK + a compile step. | ADR-0002 |
-| **Test runner** | **Deferred** behind a stable `run-tests` contract (one command → exit 0/non-0). gdUnit4 vs Chickensoft GoDotTest, picked empirically at Phase 1. | ADR-0002, [[Test suite]] |
+| **Test runner** | **gdUnit4** (chosen 2026-06-22), behind a stable `run-tests` contract (one command → exit 0/non-0) so it stays swappable. | ADR-0002, [[Test suite]] |
 | **Claude auth** | **`CLAUDE_CODE_OAUTH_TOKEN`** (subscription), not `ANTHROPIC_API_KEY`. ⇒ cap is **wall-clock only**; usage-throttle is an expected failure mode; heavy parallelism is capacity-bounded by one subscription. | — |
 | **Done-gate (generalized)** | 4 objective clauses: Issue scene exists; Issue scene boots clean (weak smoke); full test suite passes; proof video exists. | ADR-0003 |
 | **Issue scene** | Mandatory per issue at `res://test/scenes/issue_<n>.tscn`. Demo + boot-smoke + proof vehicle + reviewer hand-off. **Not** the behavioral gate (the test suite is). Self-drives the feature for ~N s then quits deterministically. | ADR-0003 |
@@ -101,18 +101,18 @@ hints, not classifier inputs.** Evaluated top-down, first match wins:
 
 ### Phase 1 — Inner loop rebuilt + C# stack validated
 **Goal:** a clean, structured image and inner loop that work **for C#** (the prototype only
-proved GDScript). **Pick the test runner here, empirically.**
+proved GDScript). Test runner = **gdUnit4** (decided).
 - Build the image: **.NET/Mono Godot build** + **.NET SDK** + Xvfb + mesa (llvmpipe:
   `--rendering-driver opengl3` + `LIBGL_ALWAYS_SOFTWARE=1`) + ffmpeg + Claude Code + `gh`/`git`
   + **MCP server pre-baked** (no PyPI egress at runtime — prototype gotcha) + pre-built
-  `.godot/import` cache + GUT-equivalent runner addon/NuGet.
+  `.godot/import` cache + **gdUnit4** (editor addon + C# NuGet).
 - Re-implement (don't lift) the inner-loop primitives: editor-up-under-Xvfb, the `run-tests`
   contract (exit 0/non-0), the Issue-scene rendered run + ffmpeg capture, the 4-clause gate.
-- Validate end-to-end on C#: build step, chosen runner (gdUnit4 **or** GoDotTest), and
+- Validate end-to-end on C#: build step, **gdUnit4 running C# tests headless**, and
   **whether `godot_ai` MCP can create/attach `.cs` scripts** (if not, the hand-edit-and-flag
   rule applies).
 - **Binary proof:** in a fresh container, a tiny C# change → the 4-clause gate flips
-  **red→green** with zero LLM in the verdict; runner chosen and recorded.
+  **red→green** with zero LLM in the verdict; gdUnit4 confirmed running C# tests headless.
 
 ### Phase 2 — Bot account + secrets injection
 **Goal:** the distinct identity the fix-loop detection depends on.
@@ -168,8 +168,10 @@ proved GDScript). **Pick the test runner here, empirically.**
 
 ## Open empirical items (resolve during the named phase)
 
-- **Test runner pick** (Phase 1) · **MCP `.cs` support** (Phase 1) · **import-cache pre-build**
-  (Phase 1) · **throttle signature** of `claude -p` on a throttled OAuth sub (Phase 4).
+- **import-cache pre-build** (Phase 1) · **throttle signature** of `claude -p` on a
+  throttled OAuth sub (Phase 4). *(Resolved 2026-06-22: test runner = gdUnit4 via
+  `dotnet test`; MCP `script_attach` binds `.cs` to nodes, but `script_create`/`patch`/
+  `test_run` are GDScript-only → the agent writes `.cs` directly.)*
 
 ## Invariants to preserve
 

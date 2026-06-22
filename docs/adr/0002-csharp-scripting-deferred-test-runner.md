@@ -27,3 +27,9 @@ inner-loop validation, when both can be tried against the real image.
   re-validate the C# inner loop end-to-end (build, runner, MCP `.cs` handling).
 - Whether the `godot_ai` MCP supports `.cs` script create/attach is **unverified** —
   covered by the rule: prefer MCP, else hand-edit the file and flag it in a PR comment.
+
+## Resolution (2026-06-22)
+
+Runner chosen: **gdUnit4** — C#-capable, embedded, with a CLI runner + JUnit XML + exit
+code, i.e. the closest carry-over of the proven GUT gate mechanics (and it keeps GDScript
+on the table). It stays behind the `run-tests` contract, so a later swap remains cheap.
