@@ -27,8 +27,13 @@ table), brings up the agent via the `AGENT_CMD` seam — production = `scripts/a
 (pass→Ready PR, timeout→Draft+`needs-rerun`, gate-red/block→Draft+`blocked`). Proofs pin
 `AGENT_CMD` to a stub/fake so they stay credit-free (`phase3_proof.sh`, `phase4a_proof.sh`);
 `scripts/agent_mcp_smoke.sh` is the credit-free MCP de-risk. The `godot_ai` addon is
-gitignored → provisioned at runtime from a host mount `/opt/godot_ai`. **Next: Phase 4c/5**
-— `fix-comments` skill + fix-run, throttle-signature capture, then review-setup. Dev image:
+gitignored → provisioned at runtime from a host mount `/opt/godot_ai`. **Next (resume here):
+Phase 4c — the real fix loop (`fix-comments`)** is **fully planned & grilled (2026-06-23) but
+NOT yet implemented** — see the "Phase 4c — PLANNED" section in `plan_implementation.md` (8
+grilled fix-payload decisions + 6 deliverables + the credit-free proof). When asked to continue
+the build, start by implementing it. Scope cuts: throttle-signature detection **deferred**; the
+one paid `claude -p` proof run is the **user's to fire** (build + prove credit-free first).
+Phase 5 (review-setup) follows. Dev image:
 `godot-ai-igloo:dev` (built from `docker/`); game seed in `game/`; secrets via a gitignored
 `.env` (template `.env.example`); bot `justfortest1234`, human reviewer `rkibistu`
 (`CLAUDE_CODE_OAUTH_TOKEN` needed for real runs; `REVIEWER_GH_TOKEN` only for the Phase-3
