@@ -4,6 +4,9 @@
 # Build / run artifacts captured during validation
 proof/
 
+# Per-run agent logs (tee'd from the container via agent_run_host.sh)
+runs/
+
 # Core dumps (Godot's software-GL teardown can SIGSEGV on SIGTERM)
 core
 **/core

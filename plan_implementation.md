@@ -233,3 +233,46 @@ proved GDScript). Test runner = **gdUnit4** (decided).
   - *Gotcha found & fixed:* a scratch file under `proof/` was swallowed by `.gitignore` →
     empty commit → "no commits between" PR failure; switched to `git commit --allow-empty`
     (a proof only needs a bot-authored commit, not file content).
+
+- **Phase 3 — DONE (2026-06-23).** The deterministic state-machine entrypoint
+  (`agent-run <issue#>`) is built and proven — classify + plumb, **agent stubbed, zero LLM
+  in any transition**. Scripts: `scripts/agent_run.sh` (the spine), `scripts/agent_stub.sh`
+  (the Phase-4 `AGENT_CMD` seam), `scripts/agent_run_host.sh` (host launcher, mounts
+  `runs/` for tee'd logs), `scripts/phase3_proof.sh` (the binary proof).
+  - **Classifier** = pure `classify_from_facts(issue_state, pr_state, pr_is_draft,
+    has_actionable_thread, branch_exists)` — the 7-row table, reordered so a
+    **closed-unmerged PR is checked before the "no PR" rows**. Facts gathered with **no
+    clone**: `gh issue view`, `gh pr list --head agent/issue-<n> --state all`, `git
+    ls-remote` for the branch, and a **GraphQL `reviewThreads`** probe. **Actionable
+    thread** = NOT resolved AND last comment author ≠ bot (`justfortest1234`).
+  - **Lifecycle:** probe → classify → **early-exit** (`done`/`in-review`/`refuse`: no
+    clone, zero work) → soft `ready-for-agent` gate (TTY prompt, or
+    `AGENT_RUN_ASSUME_READY=1` non-interactive) → **clone fresh** (amnesiac, HTTPS) →
+    branch prep (`fresh` branches from `origin/main`; `resume-fresh`/`retry`/`fix` checkout
+    `agent/issue-<n>`, never re-branch; `fix` runs `git merge origin/main`, **conflict ⇒
+    PR comment + `needs-rerun` + exit, no agent**) → payload (issue body / unresolved
+    threads) → `AGENT_CMD` (stub) → **push** → open/update a **Draft PR** (`Closes #<n>`) →
+    `fix`-run **thread-reply verification** (`THREADS_VERIFIED=ok`).
+  - **Scope boundary (→ Phase 4):** every proceeding run opens a **Draft** PR — there is
+    **no done-gate** and no Pass/Transient/Substantive label routing or throttle detection
+    yet (those are Phase 4; `AGENT_CMD` is the seam). No Godot/`dotnet` runs in Phase 3, so
+    the **import-cache** decision stays deferred.
+  - **Binary proof** (`scripts/phase3_proof.sh`): builds **live fixtures per row** on the
+    repo (issues + `agent/issue-<n>` branches/commits via the Git-Data + contents API +
+    PRs), runs the **full `agent_run.sh` in a fresh `--rm` container** per row (bot, stub),
+    and asserts the logged `CLASS` plus side effects (Draft PR for `fresh`/`resume-fresh`;
+    `THREADS_VERIFIED=ok` for `fix`). `trap` teardown + a leading sweep ⇒ **zero residue**.
+    All 7 rows **PASS live** (verified end-to-end, including row 2 `fix`: human inline
+    thread → routes to `fix` → bot in-thread reply → `THREADS_VERIFIED=ok`); the classifier
+    is *also* unit-proven hermetically for all 7 rows. **Row 2 (`fix`)** needs a review
+    thread whose last author ≠ bot — which the bot **cannot author** — so it is built via
+    **`REVIEWER_GH_TOKEN`** (the human reviewer's PAT) in `.env`; without it the proof
+    cleanly **SKIPS** row 2 (the other 6 still pass).
+  - *Discovery & gotchas:* (a) the host `gh` session is the **bot** (`justfortest1234`),
+    not `rkibistu` — hence the `REVIEWER_GH_TOKEN` path for the row-2 human thread, which
+    mirrors the real reviewer-vs-bot identity split; (b) `rm -rf`/`git clone` while cwd is
+    the `/project` WORKDIR corrupts the cwd → `cd /` first; (c) bind-mounted scripts are
+    `0644` → invoke `AGENT_CMD` via `bash`; (d) `gh issue/pr create` ride GitHub's GraphQL
+    API, which intermittently **502**s → fixture-setup calls are wrapped in a `retry`, with
+    a numeric-issue guard so a blip can't run a row with an empty issue number. New ignore:
+    `runs/`.
