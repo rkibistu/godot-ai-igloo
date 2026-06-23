@@ -52,4 +52,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 
 WORKDIR /project
 ENV DISPLAY=:99
+# Prototype gotcha: root + Claude `--dangerously-skip-permissions` requires IS_SANDBOX=1.
+# Safe here — the container IS the (ephemeral, --rm) sandbox. Secrets are still injected
+# at runtime via `docker run -e`, never baked.
+ENV IS_SANDBOX=1
 CMD ["/bin/bash"]

@@ -1,3 +1,6 @@
+# Runtime secrets (injected via docker run -e; never committed)
+.env
+
 # Build / run artifacts captured during validation
 proof/
 

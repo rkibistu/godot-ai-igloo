@@ -18,6 +18,8 @@ Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agent
 continuing implementation** (its build log records what's done). Design basis:
 `CONTEXT.md` (glossary) + `docs/adr/0001`–`0003`.
 
-Status (2026-06-22): **Phase 1 (C# inner loop + done-gate) complete; Phase 2 (bot
-GitHub account + secrets injection) is next.** Dev image: `godot-ai-igloo:dev` (built
-from `docker/`); game seed in `game/`; gate/proof scripts in `scripts/`.
+Status (2026-06-23): **Phase 2 (bot identity + secrets injection) complete; Phase 3
+(deterministic state-machine entrypoint, no LLM) is next.** Dev image:
+`godot-ai-igloo:dev` (built from `docker/`); game seed in `game/`; gate/proof/bot-init
+scripts in `scripts/`; runtime secrets injected via a gitignored `.env` (template:
+`.env.example`) — bot account is `justfortest1234`, human reviewer `rkibistu`.

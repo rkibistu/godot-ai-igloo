@@ -209,3 +209,27 @@ proved GDScript). Test runner = **gdUnit4** (decided).
     for the amnesiac model (the container clones the repo fresh per run); what to bake
     (godot_ai addon, uv prewarm) vs clone, and the **import-cache strategy** (commit
     `.godot/` vs rebuild per run), is a Phase-2/3 decision.
+
+- **Phase 2 — DONE (2026-06-23).** The bot's distinct GitHub identity + runtime
+  secret-injection path are wired and proven. Bot account `justfortest1234` (id
+  `142491623`) has push access to `rkibistu/godot-ai-igloo`; human reviewer is `rkibistu`.
+  - **Secrets via `docker run -e`, never baked.** Host `scripts/run.sh` loads a gitignored
+    `.env` (`.env.example` is the template) and maps `BOT_GH_TOKEN` → container `GH_TOKEN`
+    (+ a `CLAUDE_CODE_OAUTH_TOKEN` slot, empty until Phase 4) + `IS_SANDBOX=1`.
+  - **In-container identity** (`scripts/bot_init.sh`, sourced): sets the bot's git
+    user.name/email (GitHub noreply `142491623+justfortest1234@users.noreply.github.com`,
+    so commits attribute to the bot) and runs `gh auth setup-git` so HTTPS clone/push
+    authenticate as the bot via gh's credential helper (no SSH key in-container).
+  - **`IS_SANDBOX=1` baked** into the image (`docker/Dockerfile`) for root + Claude
+    `--dangerously-skip-permissions`; `bot_init.sh` re-exports it for non-rebuilt images.
+  - **Secret-wiring is opt-in:** the Phase 1 gate/smoke/binary_proof (no secrets,
+    bind-mount `game/`) are untouched — `scripts/binary_proof.sh` still flips red→green
+    after the image rebuild.
+  - **Binary proof** (`scripts/phase2_proof.sh`): a fresh `--rm` container clones over
+    HTTPS → pushes `phase2-proof-<ts>` → opens a **Draft PR authored as `justfortest1234`
+    (≠ `rkibistu`)** with the bot noreply commit email → then closes the PR + deletes the
+    branch (self-cleaning, re-runnable). Verified PR author + commit email; cleanup leaves
+    zero residue.
+  - *Gotcha found & fixed:* a scratch file under `proof/` was swallowed by `.gitignore` →
+    empty commit → "no commits between" PR failure; switched to `git commit --allow-empty`
+    (a proof only needs a bot-authored commit, not file content).
