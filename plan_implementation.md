@@ -133,12 +133,21 @@ proved GDScript). Test runner = **gdUnit4** (decided).
 
 ### Phase 4 — Agent invocation + governing skills + outcome routing
 **Goal:** wire the headless agent into the spine and route real outcomes.
+**Split (2026-06-23) into 4a + 4b** to de-risk: the deterministic routing is provable with
+a fake agent (no credits), so it lands before the costly LLM integration.
+
+**Phase 4a — Outcome routing + done-gate wiring (deterministic, no LLM). DONE.**
+- Insert the post-exit done-gate between the agent step and the PR; route every run to a
+  durable signal: Pass→Ready PR, timeout→Draft+`needs-rerun`, gate-red/agent-block→Draft+`blocked`.
+- **Binary proof:** a fake agent drives pass/timeout/gate-red/agent-block and the script
+  routes each correctly — agent stubbed.
+
+**Phase 4b — Real agent (Claude) + governing skills + MCP + throttle. NEXT.**
 - Fresh-implement and fix-comments **skills** (the prompts): MCP-first work model + 2 gotchas;
   red→green C# TDD; build the Issue scene + self-drive it; write semantic commits; PR body with
   `Closes #<n>`; reply in-thread on fixes; proactively declare substantive blocks.
-- Wire `timeout`-wrapped Claude Code with the fresh/fix payloads; the post-exit gate; the
-  Pass/Transient/Substantive routing + labels; **capture the real throttle signature** for
-  `needs-rerun` detection.
+- Wire `timeout`-wrapped Claude Code with the fresh/fix payloads (via the `AGENT_CMD` seam) +
+  editor/MCP bring-up; **capture the real throttle signature** for `needs-rerun` detection.
 - **Binary proof:** one fresh, fully-AFK run on a real `ready-for-agent` issue opens a **Ready
   PR** that passes the gate; one deliberately-underspecified issue terminates in a flagged
   **Draft PR** (correct label + comment).
@@ -276,3 +285,33 @@ proved GDScript). Test runner = **gdUnit4** (decided).
     API, which intermittently **502**s → fixture-setup calls are wrapped in a `retry`, with
     a numeric-issue guard so a blip can't run a row with an empty issue number. New ignore:
     `runs/`.
+
+- **Phase 4a — DONE (2026-06-23).** The post-exit **done-gate + outcome routing** are wired
+  into `scripts/agent_run.sh`; every run now ends in the correct durable GitHub signal,
+  decided entirely by the script. (Phase 4 was split — 4a is the deterministic half, proven
+  with a *fake* agent, no LLM/credits; 4b carries the real Claude + skills + MCP + throttle.)
+  - **Lifecycle (steps 5–6):** the agent step is wrapped in `timeout` (`AGENT_TIMEOUT`,
+    ~45 min, env-tunable). Outcome decided top-down: **timeout** (rc 124/137) → *transient*;
+    else a `${RUNS_DIR}/BLOCKED` marker → *substantive (agent block)*; else run
+    **`gate.sh`** → exit 0 = *pass*, non-0 = *substantive (gate)*. Routing: **pass** →
+    `git push` → **Ready** PR (`gh pr ready`, `Closes #<n>`, stale flags cleared);
+    **transient** → Draft + `needs-rerun` + comment; **substantive** → Draft + `blocked` +
+    comment (failing gate clause, or the agent's block reason). Edge: no commits ahead of
+    `main` ⇒ post the signal as an **issue** comment (a PR needs a diff). **Invariant
+    preserved:** never silent.
+  - **Plumbing changes:** `gate.sh` gained a `PROJECT_DIR` knob (the cloned repo's `game/`
+    subdir; Phase-1 callers keep the `/project` default) and a `PROOF_DIR` knob (artifacts →
+    the per-run dir). `agent_run.sh` writes a tee-independent `${RUNS_DIR}/RESULT`
+    (OUTCOME/ROUTED/PR) via a direct redirect so downstream readers don't depend on
+    stdout-pipe flushing. `agent_run_host.sh` passes `AGENT_TIMEOUT` through.
+  - **Binary proof** (`scripts/phase4a_proof.sh`): a fake agent (`scripts/agent_fake.sh`,
+    `FAKE_MODE=PASS|GATE_RED|TIMEOUT|BLOCK`) drives each outcome against live fixtures; the
+    **real** gate runs (no LLM). Asserts: PASS → **Ready** PR + `Closes #<n>`; TIMEOUT →
+    **Draft** + `needs-rerun` + comment; GATE_RED → **Draft** + `blocked` + failing-clause
+    comment; BLOCK → **Draft** + `blocked` + the agent's reason. `trap` teardown ⇒ zero
+    residue. **All 4 PASS.**
+  - *Gotcha found & fixed:* `gate.sh`'s `fail()` ran `kill -9 "$XVFB_PID"` with `XVFB_PID=0`
+    when it failed **before** Xvfb starts (e.g. clause-3 test failure) — and `kill -9 0`
+    signals the whole **process group**, which silently killed the parent `agent_run.sh`
+    mid-routing. Now guarded (`[ "$XVFB_PID" -gt 0 ]`). Latent since Phase 1, where `gate.sh`
+    *was* the container's main process so it only nuked itself.

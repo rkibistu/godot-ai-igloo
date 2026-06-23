@@ -18,11 +18,14 @@ Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agent
 continuing implementation** (its build log records what's done). Design basis:
 `CONTEXT.md` (glossary) + `docs/adr/0001`–`0003`.
 
-Status (2026-06-23): **Phase 3 (deterministic state-machine entrypoint, no LLM) complete;
-Phase 4 (agent invocation + governing skills + outcome routing) is next.** The entrypoint
+Status (2026-06-23): **Phase 4a (done-gate wiring + outcome routing, no LLM) complete;
+Phase 4b (real Claude agent + governing skills + MCP + throttle) is next.** (Phase 4 was
+split to land the deterministic routing before the costly LLM integration.) The entrypoint
 `scripts/agent_run.sh` (+ host launcher `agent_run_host.sh`) classifies an issue against
-the 7-row table and plumbs branch/PR work with the agent stubbed via the `AGENT_CMD` seam
-(`scripts/agent_stub.sh`); proven by `scripts/phase3_proof.sh`. Dev image:
+the 7-row table, runs the post-exit done-gate (`scripts/gate.sh`), and routes every run to
+a durable signal (pass→Ready PR, timeout→Draft+`needs-rerun`, gate-red/block→Draft+`blocked`).
+The agent is stubbed via the `AGENT_CMD` seam (`agent_stub.sh`; `agent_fake.sh` drives the
+4a proof). Proven by `scripts/phase4a_proof.sh` (+ `phase3_proof.sh`). Dev image:
 `godot-ai-igloo:dev` (built from `docker/`); game seed in `game/`; gate/proof/bot-init/run
 scripts in `scripts/`; runtime secrets injected via a gitignored `.env` (template:
 `.env.example`) — bot account is `justfortest1234`, human reviewer `rkibistu`. Note: the

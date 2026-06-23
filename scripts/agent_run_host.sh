@@ -27,6 +27,7 @@ exec docker run --rm -i \
   -e CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" \
   -e IS_SANDBOX=1 \
   -e AGENT_RUN_ASSUME_READY="${AGENT_RUN_ASSUME_READY:-}" \
+  -e AGENT_TIMEOUT="${AGENT_TIMEOUT:-}" \
   -v "$ROOT/scripts:/scripts" \
   -v "$ROOT/runs:/runs" \
   "$IMG" bash /scripts/agent_run.sh "$ISSUE"
