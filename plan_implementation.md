@@ -315,3 +315,37 @@ a fake agent (no credits), so it lands before the costly LLM integration.
     signals the whole **process group**, which silently killed the parent `agent_run.sh`
     mid-routing. Now guarded (`[ "$XVFB_PID" -gt 0 ]`). Latent since Phase 1, where `gate.sh`
     *was* the container's main process so it only nuked itself.
+
+- **Phase 4b (minimal) — DONE (2026-06-23).** The **real Claude agent** is wired through the
+  `AGENT_CMD` seam and proven end-to-end with **one** paid run (Phase 4 was split; this is the
+  minimal half — `fix-comments`, throttle-capture, addon-bake, import-cache all deferred).
+  - **`scripts/agent_real.sh`** (the production `AGENT_CMD`): brings up Xvfb + `godot --editor`
+    + the `godot_ai` MCP bridge (Phase-1 recipe; addon installed from the host-mounted
+    `/opt/godot_ai`, read-only), waits for ports 8000/9500 (down ⇒ `BLOCKED`, **before** any
+    `claude` call so a failed bring-up costs zero credits), writes an `.mcp.json`, runs
+    `claude -p "<payload>" --append-system-prompt <skill> --mcp-config … --dangerously-skip-permissions`,
+    then tears the editor + Xvfb down so the gate gets a clean `:99`.
+  - **`skills/fresh-implement.md`**: the governing prompt — write C# directly + a gdUnit4
+    test (red→green); build the Issue scene **via MCP** (`dotnet build` → `node_create` →
+    `script_attach` → `scene_save`, with a hand-written-`.tscn` fallback); `dotnet test`;
+    commit (no push/PR); `$RUNS_DIR/BLOCKED` if stuck; the 2 MCP gotchas.
+  - **`scripts/agent_run_host.sh`**: defaults `AGENT_CMD=/scripts/agent_real.sh`, mounts
+    `/skills` + `/opt/godot_ai`. Proofs still pin `AGENT_CMD` to the stub/fake (credit-free).
+  - **`game/project.godot`**: `godot_ai` editor plugin enabled (canonical form; gate-safe —
+    the `_mcp_game_helper` autoload loads during the scene render but `binary_proof` stays green).
+  - **`scripts/agent_mcp_smoke.sh`** (credit-free de-risk, run before any paid run): brings the
+    bridge up, lists **41 MCP tools** via the Phase-1 Python client, confirms `claude` parses the
+    HTTP MCP config and sees `godot_ai`. Caught a `docker run` **missing `-i`** (heredoc never
+    ran → false PASS) before it could mask anything.
+  - **Binary proof (one paid `claude -p` run):** issue **#111** *"add `Calculator.Subtract`"* →
+    `fresh` → the agent wrote `Subtract` + 2 gdUnit4 tests + built `issue_111.tscn` **via MCP**
+    (uid-based `ext_resource` + `.cs.uid`) → gate **PASS** (4/4, proof video) → **Ready PR #112**
+    (`Closes #111`), authored by the bot. Clean diff (5 files; no `project.godot`/addon noise —
+    the addon is gitignored, and the agent left the runtime plugin-enable unstaged).
+  - *Gotchas found & fixed:* (a) `agent_mcp_smoke` `docker run` lacked `-i` → the `bash -s`
+    heredoc ran with empty stdin → false PASS; (b) the `godot_ai` addon is **gitignored**
+    (`game/.gitignore`), so it is absent from the fresh clone — provision it from a host
+    read-only mount `/opt/godot_ai` (a runtime `git clone` of the external addon was correctly
+    **blocked by the sandbox classifier** as untrusted agent-chosen code); (c) enabling the
+    plugin makes the editor add an `[autoload]` + `[editor_plugins]` to `project.godot` —
+    committed in canonical form so it does not churn at runtime.
