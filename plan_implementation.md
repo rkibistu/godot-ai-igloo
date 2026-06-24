@@ -152,7 +152,7 @@ a fake agent (no credits), so it lands before the costly LLM integration.
   PR** that passes the gate; one deliberately-underspecified issue terminates in a flagged
   **Draft PR** (correct label + comment).
 
-**Phase 4c — fix-comments / the real fix loop. PLANNED (grilled 2026-06-23; NOT yet built — resume here).**
+**Phase 4c — fix-comments / the real fix loop. DONE (2026-06-24) — built & proven credit-free; see build log.**
 Job 2 of the sandbox (ADR-0001): respond to PR review comments. The spine already classifies a
 `fix` run, merges `main`, builds the threads payload, runs the gate, routes, and verifies replies
 (`agent_run.sh`) — but the agent it invokes for `fix` is still the *stub*. 4c builds the agent's
@@ -386,3 +386,49 @@ fire** — build + prove everything **credit-free** now.
     **blocked by the sandbox classifier** as untrusted agent-chosen code); (c) enabling the
     plugin makes the editor add an `[autoload]` + `[editor_plugins]` to `project.godot` —
     committed in canonical form so it does not churn at runtime.
+
+- **Phase 4c — DONE (2026-06-24).** The **real fix loop** (`fix-comments`) is built and proven
+  **credit-free** — Job 2 of the sandbox (respond to PR review comments) now has a real brain.
+  The spine already classified a `fix` run, merged `main`, ran the gate, routed, and verified
+  replies; 4c gives the agent the payload + skill to actually do a surgical fix. **Spine impact
+  was the `CLASS=fix` payload block only** (no state-machine / routing change), plus one
+  infrastructure fix below.
+  - **Rich `CLASS=fix` payload** (`agent_run.sh`): a new payload-only GraphQL helper
+    `fix_payload_threads` (modeled on `actionable_threads`, same actionable filter) fetches **all**
+    comments per thread with `body` + `diffHunk`; jq builds the markdown directly (no system-jq
+    dep). `payload.md` now carries: a **surgical** header (change only flagged code; locate by the
+    diff_hunk snippet — `path` reliable, `line` advisory after the `main` merge), the **issue
+    title+body as background** ("do NOT re-implement"), and per thread the reply-target
+    `comment_id` + the **full conversation** (last comment = the live ask). `threads.tsv` (the
+    proven reply-targeting + verification anchors) is **untouched**.
+  - **`skills/fix-comments.md`** (new): the governing prompt — surgical fix; the script pre-chewed
+    everything so the agent makes **zero GitHub GETs**; reply in-thread on each thread via
+    `gh api … /replies` (its only GitHub write); self-verify `dotnet test`; commit (no push/PR);
+    **stuck → fix the rest + reply-with-question + `$RUNS_DIR/BLOCKED`** (reuses 4a's substantive
+    path); the 2 MCP gotchas if a fix touches a scene.
+  - **`agent_real.sh`** now branches on `CLASS` (fix → `fix-comments.md` + a "address the review
+    comments" prompt; else `fresh-implement.md`) and has a **`CLAUDE_DRYRUN=1` early-exit** that
+    prints the selected skill **before** any editor/MCP bring-up or `claude` call (the credit-free
+    skill-selection unit).
+  - **`agent_fix_fake.sh`** (new): the credit-free fix agent — replies in-thread on every
+    `threads.tsv` target (reuses the `agent_stub.sh` reply call) + writes a gate-safe Issue scene
+    (reuses `agent_fake.sh`'s `write_issue_scene`) + commits → exercises the **real** gate and the
+    spine's reply verification for free.
+  - **Spine infra fix (latent 4b regression):** `project.godot` autoloads `_mcp_game_helper` from
+    the **gitignored** addon (added in 4b), so **any** post-exit gate run on a fresh clone logged
+    "Failed to instantiate an autoload" → the gate's error grep tripped. The real agent installs
+    the addon during MCP bring-up, but a fake/stub agent does not. Fix: **`agent_run.sh` provisions
+    the addon from `/opt/godot_ai` once after branch-prep**, so the gate is robust for **any**
+    `AGENT_CMD`. (Still gitignored → never enters the PR.) `phase4a_proof.sh` updated to mount
+    `/opt/godot_ai` (its PASS row's gate would otherwise have failed since 4b).
+  - **Binary proof** (`scripts/phase4c_proof.sh`, credit-free): **(A)** a `CLAUDE_DRYRUN`
+    skill-selection unit (fix→`fix-comments.md`, fresh→`fresh-implement.md`); **(B)** a live
+    fixture PR with **two human-authored inline threads on different files** (via
+    `REVIEWER_GH_TOKEN`; SKIPs cleanly without it) → `agent_fix_fake` → asserts `CLASS=fix`, **rich
+    payload** (issue + both comment bodies + both diff_hunks), `THREADS_VERIFIED=ok`, **gate
+    PASS → Ready PR** (`Closes #n`, `isDraft=false`). **Both checks PASS** (proof run
+    `#113`→PR `#114`). Self-cleaning (leading sweep + trap). Regressions re-run green:
+    **phase4a 4/4**, **phase3 7/7** (row2-fix exercises the new rich payload).
+  - **Deferred (unchanged):** throttle-signature detection (can't force a throttle on demand —
+    routing to `needs-rerun` is wired, only the detector is open). **The one paid `claude -p`
+    acceptance run is the user's to fire** (real human thread → real agent fixes + replies → Ready).

@@ -66,6 +66,38 @@ actionable_threads() {  # $1 = pr number
     2>/dev/null
 }
 
+# Payload-only enrichment of the SAME actionable threads (Phase 4c). For each thread it
+# emits a markdown block: reply-target comment_id (the first comment, == threads.tsv
+# anchor), path, advisory line, the diff_hunk, and the FULL conversation (last comment =
+# the live ask). The actionable filter is identical to actionable_threads() so the set
+# matches threads.tsv exactly. jq builds the markdown directly (no system jq dependency).
+fix_payload_threads() {  # $1 = pr number
+  gh api graphql \
+    -F owner="$OWNER" -F name="$NAME" -F pr="$1" \
+    -f query='
+      query($owner:String!,$name:String!,$pr:Int!){
+        repository(owner:$owner,name:$name){
+          pullRequest(number:$pr){
+            reviewThreads(first:100){ nodes{
+              isResolved
+              comments(first:100){ nodes{ databaseId author{login} body diffHunk path line } }
+            }}
+          }
+        }
+      }' \
+    --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+          | select(.isResolved==false)
+          | select((.comments.nodes|last).author.login != "'"$BOT_LOGIN"'")
+          | (.comments.nodes[0]) as $first
+          | "### Thread on \($first.path):\($first.line)\n"
+            + "- reply target: comment_id=\($first.databaseId)\n\n"
+            + "diff_hunk (locate the code by this snippet; line is advisory):\n```diff\n\($first.diffHunk)\n```\n\n"
+            + "Conversation (oldest→newest; the LAST comment is the live ask):\n"
+            + ([.comments.nodes[] | "- **\(.author.login)**: \(.body)"] | join("\n"))
+            + "\n"' \
+    2>/dev/null
+}
+
 apply_label() {  # $1 = pr/issue number, $2 = label  (best-effort; never fatal)
   gh label create "$2" --repo "$REPO" --color ededed --force >/dev/null 2>&1 || true
   gh pr edit "$1" --repo "$REPO" --add-label "$2" >/dev/null 2>&1 || true
@@ -174,19 +206,42 @@ case "$CLASS" in
     fi ;;
 esac
 
+# --- provision the godot_ai addon (gitignored -> absent from the clone) -------
+# The post-exit gate renders the Issue scene, and project.godot autoloads _mcp_game_helper
+# from the addon; without it Godot logs "Failed to instantiate an autoload" and the gate's
+# error grep trips. The real agent (agent_real.sh) also needs the bridge up for MCP.
+# Provision it ONCE here, from the host read-only mount, so the gate is robust for ANY
+# AGENT_CMD (real/fake/stub). It is gitignored -> never enters the agent's commit/PR.
+if [ ! -d "$PROJ/game/addons/godot_ai" ] && [ -d /opt/godot_ai ]; then
+  echo "== provision godot_ai addon from /opt/godot_ai =="
+  mkdir -p "$PROJ/game/addons"
+  cp -r /opt/godot_ai "$PROJ/game/addons/godot_ai"
+fi
+
 # --- gather payload ----------------------------------------------------------
 echo "== gather payload =="
 PAYLOAD="$RUNS_DIR/payload.md"
 if [ "$CLASS" = "fix" ]; then
+  # threads.tsv drives reply-targeting + the post-run verification — keep the PROVEN
+  # actionable_threads anchors UNTOUCHED. The rich markdown below is payload-only.
   printf '%s\n' "$ACTION_THREADS" > "$RUNS_DIR/threads.tsv"
   {
     echo "# Fix payload — issue #$ISSUE, PR #$PR_NUM"
-    echo "Address each unresolved review thread, then reply in-thread on each."
     echo
-    printf '%s\n' "$ACTION_THREADS" | while IFS=$'\t' read -r cid path line author; do
-      [ -n "$cid" ] || continue
-      echo "- comment_id=$cid  $path:$line  (last author: $author)"
-    done
+    echo "You are doing a **surgical** fix. Address ONLY the code flagged in the review"
+    echo "threads below. Make the minimal change that satisfies each thread; do NOT refactor"
+    echo "unflagged code, and do NOT re-implement the issue. Locate code by the diff_hunk"
+    echo "snippet (the \`path\` is reliable; the \`line\` is advisory — the pre-run merge of"
+    echo "\`main\` may have shifted it). After addressing a thread, reply in-thread to its"
+    echo "comment_id (see skill)."
+    echo
+    echo "## Issue (background — interpret intent only; do NOT re-implement)"
+    echo
+    gh issue view "$ISSUE" --repo "$REPO" --json title,body --jq '"### "+.title+"\n\n"+(.body // "")'
+    echo
+    echo "## Review threads to address (only these — unresolved, awaiting the bot)"
+    echo
+    fix_payload_threads "$PR_NUM"
   } > "$PAYLOAD"
 else
   {

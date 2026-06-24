@@ -58,11 +58,15 @@ new_issue() {  # $1 = label ; echoes issue number
 }
 
 # Run the full entrypoint in a fresh --rm container with the fake agent.
+# Mount the gitignored godot_ai addon read-only: project.godot autoloads it, so the spine
+# provisions it before the gate (added Phase 4c); without the mount the gate trips on the
+# missing autoload. Mirrors agent_run_host.sh.
 run_agent() {  # $1 issue, $2 FAKE_MODE, $3 AGENT_TIMEOUT
   docker run --rm \
     -e GH_TOKEN="$BOT_GH_TOKEN" -e IS_SANDBOX=1 -e AGENT_RUN_ASSUME_READY=1 \
     -e AGENT_CMD=/scripts/agent_fake.sh -e FAKE_MODE="$2" -e AGENT_TIMEOUT="$3" \
     -v "$ROOT/scripts:/scripts" -v "$ROOT/runs:/runs" \
+    -v "$ROOT/game/addons/godot_ai:/opt/godot_ai:ro" \
     "$IMG" bash /scripts/agent_run.sh "$1" >"$TMP/row.log" 2>&1
 }
 

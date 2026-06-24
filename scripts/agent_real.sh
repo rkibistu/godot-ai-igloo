@@ -10,10 +10,22 @@ set -uo pipefail
 ISSUE="${1:?issue}"; CLASS="${2:-fresh}"; PAYLOAD="${3:?payload}"
 GAME_DIR="${GAME_DIR:-/project/game}"
 RUNS_DIR="${RUNS_DIR:-/tmp/run}"; mkdir -p "$RUNS_DIR"
-SKILL="/skills/fresh-implement.md"
+# Governing prompt is chosen by the run class: a fix run addresses review threads, a
+# fresh/resume run implements the issue. Both work models are otherwise identical.
+case "$CLASS" in
+  fix) SKILL="/skills/fix-comments.md" ;;
+  *)   SKILL="/skills/fresh-implement.md" ;;
+esac
 HTTP_PORT=8000; WS_PORT=9500; DRIVER=opengl3
 export DISPLAY=:99
 ulimit -c 0   # software-GL teardown can SIGSEGV on kill; suppress core dumps
+
+# Credit-free skill-selection check: assert the right skill is chosen for this class and
+# exit BEFORE any editor/MCP bring-up or claude call (no token needed). Used by the proof.
+if [ "${CLAUDE_DRYRUN:-}" = "1" ]; then
+  echo "DRYRUN: class=$CLASS skill=$SKILL"
+  exit 0
+fi
 
 [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || {
   echo "CLAUDE_CODE_OAUTH_TOKEN unset — cannot invoke the agent" > "$RUNS_DIR/BLOCKED"
@@ -72,9 +84,17 @@ cat > "$MCP_CFG" <<JSON
 {"mcpServers":{"godot_ai":{"type":"http","url":"http://127.0.0.1:$HTTP_PORT/mcp"}}}
 JSON
 
-PROMPT="Implement GitHub issue #$ISSUE. The Issue scene MUST be at res://test/scenes/issue_$ISSUE.tscn (script game/test/scenes/Issue$ISSUE.cs, class Issue$ISSUE).
+# A fix run's payload already carries the surgical framing + the threads; a fresh run needs
+# the Issue-scene contract spelled out. The payload (issue body / review threads) is appended.
+if [ "$CLASS" = "fix" ]; then
+  PROMPT="Address the PR review comments below for issue #$ISSUE — a surgical fix; reply in-thread on each.
 
 $(cat "$PAYLOAD")"
+else
+  PROMPT="Implement GitHub issue #$ISSUE. The Issue scene MUST be at res://test/scenes/issue_$ISSUE.tscn (script game/test/scenes/Issue$ISSUE.cs, class Issue$ISSUE).
+
+$(cat "$PAYLOAD")"
+fi
 
 # --dangerously-skip-permissions auto-approves all tools (incl. the configured MCP server);
 # IS_SANDBOX=1 (set in the image) makes that safe as root in this --rm container.
