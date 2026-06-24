@@ -28,16 +28,17 @@ agent via the `AGENT_CMD` seam — production = `scripts/agent_real.sh` (`claude
 + `godot_ai` MCP; governing prompt chosen by class: `skills/fresh-implement.md` /
 `skills/fix-comments.md`) — runs the post-exit done-gate (`scripts/gate.sh`), routes to a durable
 signal (pass→Ready PR, timeout→Draft+`needs-rerun`, gate-red/block→Draft+`blocked`), and on a fix
-run verifies every thread got a bot reply. Proofs pin `AGENT_CMD` to a stub/fake so they stay
-credit-free (`phase3_proof.sh` 7/7, `phase4a_proof.sh` 4/4, **`phase4c_proof.sh`** — skill-select
-unit + a two-thread fix-loop → Ready); `scripts/agent_mcp_smoke.sh` is the credit-free MCP
-de-risk. **Phase 5 (review-setup, host):** `bash scripts/review_setup.sh <issue#>` makes an
+run verifies every thread got a bot reply. **Phase 5 (review-setup, host):** `bash scripts/review_setup.sh <issue#>` makes an
 isolated `git worktree` on `agent/issue-<n>`, provisions the gitignored `godot_ai` addon into it,
 and opens the local Godot editor (`GODOT_BIN`/extracted zip) — then hands off. The human runs their
 own AI session **as `rkibistu`** (the bot is local only because we're testing; in real use it lives
 only in the container) and posts review comments in the GitHub UI; the bot's Fix run picks them up.
-No LLM → credit-free: `scripts/phase5_proof.sh` PASS (worktree + addon + idempotent; editor-window
-launch is a manual eyeball). **Next: Phase 6 (merge — likely just the GitHub squash-merge UI;
+No LLM → credit-free; the editor-window launch is a manual eyeball. **Repo cleanup (2026-06-24):**
+the credit-free proof suite (`phase{2,3,4a,4c,5}_proof.sh` + the `agent_stub`/`agent_fake`/`agent_fix_fake`
+agents + `agent_mcp_smoke.sh` + Phase-1 `binary_proof.sh`/`smoke.sh`) and the dead `mcp_cs_*.sh`
+were **removed** in a production-only strip — each was proven PASS at the time (see the build log).
+**Restore from commit `fd72b70`** (`git checkout fd72b70 -- scripts/<name>.sh`) to re-run any
+regression, e.g. before the Phase-7 refactor. **Next: Phase 6 (merge — likely just the GitHub squash-merge UI;
 `Closes #n` auto-closes) → Phase 7 (harness extraction: `--repo` + `.igloo.yml`, the
 decided-but-deferred "shared harness pointed at any repo" model).** Scope cuts still open:
 throttle-signature detection **deferred**; the one paid `claude -p` fix acceptance run is the

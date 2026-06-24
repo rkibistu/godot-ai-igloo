@@ -1,5 +1,11 @@
 # Autonomous Game-Dev Agent — Implementation Plan (phased build)
 
+> **NOTE — repo cleanup 2026-06-24 (production-only strip):** the credit-free proof scripts named
+> throughout this doc (`phase{2,3,4a,4c,5}_proof.sh`, the `agent_stub`/`agent_fake`/`agent_fix_fake`
+> agents, `agent_mcp_smoke.sh`, `binary_proof.sh`, `smoke.sh`) and the dead `mcp_cs_*.sh` were
+> **deleted**. Each had PASSED at the time (the build log is an accurate historical record). To
+> re-run any regression, restore it: `git checkout fd72b70 -- scripts/<name>.sh`.
+>
 > Durable record of the design/grilling session of **2026-06-22**. This is the phased
 > **build** plan for the real system. It is self-contained, but its design basis is:
 > `ArhitectureConcept`, `plan_workflow.md` (the prior workflow design), `CONTEXT.md`

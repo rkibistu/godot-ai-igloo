@@ -9,8 +9,8 @@
 #   bash /scripts/agent_run.sh <issue-number>
 #
 # Scope: classify + plumb (Phase 3) + post-exit done-gate & outcome routing (Phase 4a).
-# The agent is invoked via AGENT_CMD (stub/fake until 4b wires real Claude). After it
-# returns, the SCRIPT decides the outcome and routes to a durable GitHub signal:
+# The agent is invoked via AGENT_CMD (production default: agent_real.sh — real Claude). After
+# it returns, the SCRIPT decides the outcome and routes to a durable GitHub signal:
 #   pass -> Ready PR (Closes #n) · timeout -> Draft+needs-rerun · block/gate-fail -> Draft+blocked.
 #
 # Exit codes: 0 ok/early-exit · 64 usage/missing-issue · 65 refuse (closed-unmerged PR)
@@ -26,7 +26,7 @@ REPO_URL="https://github.com/${REPO}.git"
 BRANCH="agent/issue-${ISSUE}"
 PROJ=/project
 RUNS_DIR="/runs/${ISSUE}/$(date -u +%Y%m%dT%H%M%SZ)"
-AGENT_CMD="${AGENT_CMD:-/scripts/agent_stub.sh}"
+AGENT_CMD="${AGENT_CMD:-/scripts/agent_real.sh}"
 
 # --- logging: tee everything (stdout+stderr) to the host-mounted, per-run log ---
 mkdir -p "$RUNS_DIR"
