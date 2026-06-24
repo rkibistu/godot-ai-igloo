@@ -187,13 +187,18 @@ fire** — build + prove everything **credit-free** now.
   agent fixes + replies → Ready.
 - **Spine impact:** only the `CLASS=fix` payload block changes — no state-machine/routing change.
 
-### Phase 5 — review-setup (host, flag-driven)
+### Phase 5 — review-setup (host, environment-prep only) — DONE (2026-06-24)
 **Goal:** drop the human into a ready-to-review state fast, local Godot, no sandbox.
-- Flags: `git fetch`+checkout the branch; print a review brief (diff summary + unresolved
-  threads); launch editor/game; optionally seed an interactive Claude session pre-loaded with
-  PR context. (The host review agent opens inline threads via `gh api`, authored as the human.)
-- **Binary proof:** one command takes a PR# to a running game + a printed brief; a seeded
-  session posts an inline review thread that a subsequent **Fix** run picks up.
+**Scope (cut during grilling to env-prep only):** `review_setup.sh <issue#>` makes an isolated
+`git worktree` on `agent/issue-<n>`, provisions the gitignored `godot_ai` addon into it, and opens
+the local Godot editor — then hands off. The human runs their own AI session (as the reviewer
+`rkibistu`, NOT the bot) and posts review comments in the GitHub UI; the bot's Fix run picks them
+up. **Cut:** no seeded/automated reviewer, no `REVIEW_CMD` seam, no review brief, no thread-posting
+or `REVIEWER_GH_TOKEN` in the shipped script → **no LLM, fully credit-free, no paid acceptance run.**
+- **Binary proof** (`scripts/phase5_proof.sh`, host-side, credit-free, no container): a fixture
+  issue+branch → `review_setup --no-launch` → asserts worktree on `agent/issue-<n>` + addon
+  provisioned + project checked out + idempotent on re-run. Editor-window launch = one-time manual
+  eyeball. See build log.
 
 ### Phase 6 — agent-merge + deferred
 - Tiny `agent-merge` (or just the UI) for the human squash-merge; `Closes #<n>` auto-closes.
@@ -432,3 +437,35 @@ fire** — build + prove everything **credit-free** now.
   - **Deferred (unchanged):** throttle-signature detection (can't force a throttle on demand —
     routing to `needs-rerun` is wired, only the detector is open). **The one paid `claude -p`
     acceptance run is the user's to fire** (real human thread → real agent fixes + replies → Ready).
+
+- **Phase 5 — DONE (2026-06-24).** review-setup — the **first host-side, human-facing** tool —
+  is built and proven credit-free. Scope was deliberately **cut during a grilling session to
+  environment-prep only** (the human drives the review; the script just stages it).
+  - **`scripts/review_setup.sh`** (new, host bash — no container, no LLM): `review_setup.sh
+    <issue#> [--no-launch] [--remove]`. Resolves `agent/issue-<n>`, `git fetch origin`, verifies
+    the branch exists; makes an **idempotent isolated `git worktree`** (default a sibling dir
+    `<repo>-review/issue-<n>`, outside the main tree, reset to the fetched tip with
+    `worktree add -B`); **provisions the gitignored `godot_ai` addon into the worktree** (else the
+    editor trips the same `_mcp_game_helper` autoload error the gate hit in 4c); then opens the
+    **host Godot editor** (`GODOT_BIN` from `.env`, else extracts the 4.6.3-mono zip once into the
+    gitignored `.tools/godot/`). `--remove` tears the worktree + local branch down. Repo-specific
+    values live in **one top block** for the Phase-7 `--repo` lift.
+  - **Decisions (grilled):** the bot is the local `gh` identity only because we're testing —
+    in real use the human's session is `rkibistu`, and the bot lives only in the container, so
+    **identity is the human's concern at session-start, not the script's.** Therefore: **no seeded
+    reviewer / `REVIEW_CMD` / `skills/review.md`, no review brief, no thread-posting, no
+    `REVIEWER_GH_TOKEN`** in the shipped script. Worktree (not in-place checkout) so the dev's
+    working tree is never disturbed.
+  - **Binary proof** (`scripts/phase5_proof.sh`, host-side, **credit-free, no container**): fixture
+    issue + remote `agent/issue-<n>` (from `main`, so `game/` exists) + Draft PR →
+    `review_setup --no-launch` (×2 for idempotency) → asserts the worktree HEAD is `agent/issue-<n>`,
+    `game/addons/godot_ai/` is present, `game/project.godot` checked out. **PASS** (fixture
+    `#136`). Self-cleaning (sweep + trap; removes worktree, local branch, remote branch, issue —
+    zero residue). The **Godot editor window opening is a one-time manual eyeball** (a GUI can't be
+    asserted headlessly): `bash scripts/review_setup.sh <real-issue#>`.
+  - **No spine change** → regressions (phase3/4a/4c) logically untouched. **No paid acceptance run**
+    (Phase 5 spends no credits).
+  - **Roadmap:** **Phase 6** = merge (likely just the human clicking Squash-merge in the GitHub UI;
+    `Closes #n` auto-closes) → **Phase 7** = harness extraction (`--repo` + a thin `.igloo.yml`),
+    the decided-but-deferred "shared harness pointed at any repo" integration model, done after
+    Phase 5 so it captures Phase 5's host couplings too.

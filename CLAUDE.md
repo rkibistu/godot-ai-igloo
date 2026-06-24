@@ -18,9 +18,9 @@ Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agent
 continuing implementation** (its build log records what's done). Design basis:
 `CONTEXT.md` (glossary) + `docs/adr/0001`–`0003`.
 
-Status (2026-06-24): **Phase 4c complete — the real fix loop (`fix-comments`) is built and
-proven credit-free.** Both sandbox jobs now have a real brain: `fresh-implement` (4b) and
-`fix-comments` (4c). `scripts/agent_run.sh` (+ host launcher `agent_run_host.sh`) classifies an
+Status (2026-06-24): **Phase 5 complete — the full inner loop runs end-to-end.** The sandbox
+half (Phases 1–4c) has both brains: `fresh-implement` (4b) and `fix-comments` (4c); the human
+half (Phase 5) is the host-side `review_setup.sh`. `scripts/agent_run.sh` (+ host launcher `agent_run_host.sh`) classifies an
 issue (7-row table), prepares the branch, **provisions the gitignored `godot_ai` addon** so the
 gate is robust for any agent, gathers the payload (fresh = issue body; **fix = a rich payload —
 surgical header + issue background + per-thread diff_hunk + full conversation**), brings up the
@@ -31,10 +31,17 @@ signal (pass→Ready PR, timeout→Draft+`needs-rerun`, gate-red/block→Draft+`
 run verifies every thread got a bot reply. Proofs pin `AGENT_CMD` to a stub/fake so they stay
 credit-free (`phase3_proof.sh` 7/7, `phase4a_proof.sh` 4/4, **`phase4c_proof.sh`** — skill-select
 unit + a two-thread fix-loop → Ready); `scripts/agent_mcp_smoke.sh` is the credit-free MCP
-de-risk. **Next: Phase 5 (review-setup)** — host, flag-driven (see `plan_implementation.md`).
-Scope cuts still open: throttle-signature detection **deferred**; the one paid `claude -p`
-acceptance run (real human thread → real agent fix + reply → Ready) is the **user's to fire**
-(`bash scripts/agent_run_host.sh <issue#>`). Dev image:
+de-risk. **Phase 5 (review-setup, host):** `bash scripts/review_setup.sh <issue#>` makes an
+isolated `git worktree` on `agent/issue-<n>`, provisions the gitignored `godot_ai` addon into it,
+and opens the local Godot editor (`GODOT_BIN`/extracted zip) — then hands off. The human runs their
+own AI session **as `rkibistu`** (the bot is local only because we're testing; in real use it lives
+only in the container) and posts review comments in the GitHub UI; the bot's Fix run picks them up.
+No LLM → credit-free: `scripts/phase5_proof.sh` PASS (worktree + addon + idempotent; editor-window
+launch is a manual eyeball). **Next: Phase 6 (merge — likely just the GitHub squash-merge UI;
+`Closes #n` auto-closes) → Phase 7 (harness extraction: `--repo` + `.igloo.yml`, the
+decided-but-deferred "shared harness pointed at any repo" model).** Scope cuts still open:
+throttle-signature detection **deferred**; the one paid `claude -p` fix acceptance run is the
+**user's to fire** (`bash scripts/agent_run_host.sh <issue#>`). Dev image:
 `godot-ai-igloo:dev` (built from `docker/`); game seed in `game/`; secrets via a gitignored
 `.env` (template `.env.example`); bot `justfortest1234`, human reviewer `rkibistu`
 (`CLAUDE_CODE_OAUTH_TOKEN` needed for real runs; `REVIEWER_GH_TOKEN` authors the non-bot review

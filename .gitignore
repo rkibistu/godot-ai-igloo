@@ -7,6 +7,9 @@ proof/
 # Per-run agent logs (tee'd from the container via agent_run_host.sh)
 runs/
 
+# Host Godot binary extracted from the zip by review_setup.sh (Phase 5)
+.tools/
+
 # Core dumps (Godot's software-GL teardown can SIGSEGV on SIGTERM)
 core
 **/core
