@@ -133,15 +133,59 @@ proved GDScript). Test runner = **gdUnit4** (decided).
 
 ### Phase 4 — Agent invocation + governing skills + outcome routing
 **Goal:** wire the headless agent into the spine and route real outcomes.
+**Split (2026-06-23) into 4a + 4b** to de-risk: the deterministic routing is provable with
+a fake agent (no credits), so it lands before the costly LLM integration.
+
+**Phase 4a — Outcome routing + done-gate wiring (deterministic, no LLM). DONE.**
+- Insert the post-exit done-gate between the agent step and the PR; route every run to a
+  durable signal: Pass→Ready PR, timeout→Draft+`needs-rerun`, gate-red/agent-block→Draft+`blocked`.
+- **Binary proof:** a fake agent drives pass/timeout/gate-red/agent-block and the script
+  routes each correctly — agent stubbed.
+
+**Phase 4b — Real agent (Claude) + governing skills + MCP + throttle. DONE (minimal, 2026-06-23) — throttle deferred to 4c (see build log + Phase 4c below).**
 - Fresh-implement and fix-comments **skills** (the prompts): MCP-first work model + 2 gotchas;
   red→green C# TDD; build the Issue scene + self-drive it; write semantic commits; PR body with
   `Closes #<n>`; reply in-thread on fixes; proactively declare substantive blocks.
-- Wire `timeout`-wrapped Claude Code with the fresh/fix payloads; the post-exit gate; the
-  Pass/Transient/Substantive routing + labels; **capture the real throttle signature** for
-  `needs-rerun` detection.
+- Wire `timeout`-wrapped Claude Code with the fresh/fix payloads (via the `AGENT_CMD` seam) +
+  editor/MCP bring-up; **capture the real throttle signature** for `needs-rerun` detection.
 - **Binary proof:** one fresh, fully-AFK run on a real `ready-for-agent` issue opens a **Ready
   PR** that passes the gate; one deliberately-underspecified issue terminates in a flagged
   **Draft PR** (correct label + comment).
+
+**Phase 4c — fix-comments / the real fix loop. PLANNED (grilled 2026-06-23; NOT yet built — resume here).**
+Job 2 of the sandbox (ADR-0001): respond to PR review comments. The spine already classifies a
+`fix` run, merges `main`, builds the threads payload, runs the gate, routes, and verifies replies
+(`agent_run.sh`) — but the agent it invokes for `fix` is still the *stub*. 4c builds the agent's
+brain for a fix run. **Scope cuts (decided 2026-06-23):** throttle-signature detection **deferred**
+(can't force a real throttle on demand); the single paid `claude -p` proof run is the **user's to
+fire** — build + prove everything **credit-free** now.
+- **Fix-payload design (grilled — the load-bearing part):**
+  1. *Surgical* — change only the flagged code; the issue is background to interpret intent,
+     never a re-spec; no refactoring/improving unflagged code.
+  2. *Script pre-chews everything; the agent makes zero GitHub GET calls* — its only GitHub write
+     is the in-thread reply POST.
+  3. *Full conversation* per actionable thread (robust to re-fix rounds: the reply-anchor is the
+     first comment, the live ask is the last).
+  4. *`diff_hunk` + locate-by-snippet* — `path` reliable, `line` advisory (pre-run main-merge shifts it).
+  5. *Full issue title+body* as labeled context (`do NOT re-implement`).
+  6. *Only actionable threads* (unresolved + last-author≠bot); regression safety = surgical + test gate.
+  7. *Agent posts replies via `gh api`* (payload supplies each reply-target `comment_id`); the script verifies coverage.
+  8. *Stuck thread → fix the rest, block on it* — reply-with-question + `$RUNS_DIR/BLOCKED` → Draft+blocked.
+- **Deliverables:** (0) `agent_run.sh` rich `CLASS=fix` payload via a payload-only GraphQL that
+  also fetches each comment's `body`+`diffHunk` (keep `actionable_threads`/`threads.tsv` untouched —
+  reply-targeting + verification reuse the proven anchors); (1) `skills/fix-comments.md`;
+  (2) `scripts/agent_real.sh` — branch on `CLASS` (fix→`fix-comments.md`) + a `CLAUDE_DRYRUN=1`
+  early-exit; (3) `scripts/agent_fix_fake.sh` (credit-free fix agent); (4) `scripts/phase4c_proof.sh`;
+  (5) docs. Reuse: reply call `agent_stub.sh:29`; `write_issue_scene` `agent_fake.sh:17`; fix fixture
+  + `REVIEWER_GH_TOKEN` from `phase3_proof.sh` row 2; thread-verify `agent_run.sh:283`.
+- **Binary proof (credit-free):** a live fixture PR with **two** human-authored inline threads on
+  different file:line anchors (via `REVIEWER_GH_TOKEN`; SKIP cleanly without it) → `agent_fix_fake`
+  replies to both + makes a gate-safe edit → **real gate** → asserts `CLASS=fix`, rich payload
+  (issue + both comment bodies + diff_hunks), `THREADS_VERIFIED=ok`, gate PASS → **Ready**, both
+  threads' last author = bot; plus a `CLAUDE_DRYRUN` skill-selection unit. (Stuck-thread→Draft+blocked
+  reuses 4a's proven substantive path.) **Paid acceptance run (user fires):** real human thread → real
+  agent fixes + replies → Ready.
+- **Spine impact:** only the `CLASS=fix` payload block changes — no state-machine/routing change.
 
 ### Phase 5 — review-setup (host, flag-driven)
 **Goal:** drop the human into a ready-to-review state fast, local Godot, no sandbox.
@@ -169,7 +213,9 @@ proved GDScript). Test runner = **gdUnit4** (decided).
 ## Open empirical items (resolve during the named phase)
 
 - **import-cache pre-build** (Phase 1) · **throttle signature** of `claude -p` on a
-  throttled OAuth sub (Phase 4). *(Resolved 2026-06-22: test runner = gdUnit4 via
+  throttled OAuth sub — **deferred out of Phase 4c (2026-06-23)**: can't be forced on demand, so
+  it awaits a first real throttle; routing to `needs-rerun` is already wired, only the detector is
+  open. *(Resolved 2026-06-22: test runner = gdUnit4 via
   `dotnet test`; MCP `script_attach` binds `.cs` to nodes, but `script_create`/`patch`/
   `test_run` are GDScript-only → the agent writes `.cs` directly.)*
 
@@ -276,3 +322,67 @@ proved GDScript). Test runner = **gdUnit4** (decided).
     API, which intermittently **502**s → fixture-setup calls are wrapped in a `retry`, with
     a numeric-issue guard so a blip can't run a row with an empty issue number. New ignore:
     `runs/`.
+
+- **Phase 4a — DONE (2026-06-23).** The post-exit **done-gate + outcome routing** are wired
+  into `scripts/agent_run.sh`; every run now ends in the correct durable GitHub signal,
+  decided entirely by the script. (Phase 4 was split — 4a is the deterministic half, proven
+  with a *fake* agent, no LLM/credits; 4b carries the real Claude + skills + MCP + throttle.)
+  - **Lifecycle (steps 5–6):** the agent step is wrapped in `timeout` (`AGENT_TIMEOUT`,
+    ~45 min, env-tunable). Outcome decided top-down: **timeout** (rc 124/137) → *transient*;
+    else a `${RUNS_DIR}/BLOCKED` marker → *substantive (agent block)*; else run
+    **`gate.sh`** → exit 0 = *pass*, non-0 = *substantive (gate)*. Routing: **pass** →
+    `git push` → **Ready** PR (`gh pr ready`, `Closes #<n>`, stale flags cleared);
+    **transient** → Draft + `needs-rerun` + comment; **substantive** → Draft + `blocked` +
+    comment (failing gate clause, or the agent's block reason). Edge: no commits ahead of
+    `main` ⇒ post the signal as an **issue** comment (a PR needs a diff). **Invariant
+    preserved:** never silent.
+  - **Plumbing changes:** `gate.sh` gained a `PROJECT_DIR` knob (the cloned repo's `game/`
+    subdir; Phase-1 callers keep the `/project` default) and a `PROOF_DIR` knob (artifacts →
+    the per-run dir). `agent_run.sh` writes a tee-independent `${RUNS_DIR}/RESULT`
+    (OUTCOME/ROUTED/PR) via a direct redirect so downstream readers don't depend on
+    stdout-pipe flushing. `agent_run_host.sh` passes `AGENT_TIMEOUT` through.
+  - **Binary proof** (`scripts/phase4a_proof.sh`): a fake agent (`scripts/agent_fake.sh`,
+    `FAKE_MODE=PASS|GATE_RED|TIMEOUT|BLOCK`) drives each outcome against live fixtures; the
+    **real** gate runs (no LLM). Asserts: PASS → **Ready** PR + `Closes #<n>`; TIMEOUT →
+    **Draft** + `needs-rerun` + comment; GATE_RED → **Draft** + `blocked` + failing-clause
+    comment; BLOCK → **Draft** + `blocked` + the agent's reason. `trap` teardown ⇒ zero
+    residue. **All 4 PASS.**
+  - *Gotcha found & fixed:* `gate.sh`'s `fail()` ran `kill -9 "$XVFB_PID"` with `XVFB_PID=0`
+    when it failed **before** Xvfb starts (e.g. clause-3 test failure) — and `kill -9 0`
+    signals the whole **process group**, which silently killed the parent `agent_run.sh`
+    mid-routing. Now guarded (`[ "$XVFB_PID" -gt 0 ]`). Latent since Phase 1, where `gate.sh`
+    *was* the container's main process so it only nuked itself.
+
+- **Phase 4b (minimal) — DONE (2026-06-23).** The **real Claude agent** is wired through the
+  `AGENT_CMD` seam and proven end-to-end with **one** paid run (Phase 4 was split; this is the
+  minimal half — `fix-comments`, throttle-capture, addon-bake, import-cache all deferred).
+  - **`scripts/agent_real.sh`** (the production `AGENT_CMD`): brings up Xvfb + `godot --editor`
+    + the `godot_ai` MCP bridge (Phase-1 recipe; addon installed from the host-mounted
+    `/opt/godot_ai`, read-only), waits for ports 8000/9500 (down ⇒ `BLOCKED`, **before** any
+    `claude` call so a failed bring-up costs zero credits), writes an `.mcp.json`, runs
+    `claude -p "<payload>" --append-system-prompt <skill> --mcp-config … --dangerously-skip-permissions`,
+    then tears the editor + Xvfb down so the gate gets a clean `:99`.
+  - **`skills/fresh-implement.md`**: the governing prompt — write C# directly + a gdUnit4
+    test (red→green); build the Issue scene **via MCP** (`dotnet build` → `node_create` →
+    `script_attach` → `scene_save`, with a hand-written-`.tscn` fallback); `dotnet test`;
+    commit (no push/PR); `$RUNS_DIR/BLOCKED` if stuck; the 2 MCP gotchas.
+  - **`scripts/agent_run_host.sh`**: defaults `AGENT_CMD=/scripts/agent_real.sh`, mounts
+    `/skills` + `/opt/godot_ai`. Proofs still pin `AGENT_CMD` to the stub/fake (credit-free).
+  - **`game/project.godot`**: `godot_ai` editor plugin enabled (canonical form; gate-safe —
+    the `_mcp_game_helper` autoload loads during the scene render but `binary_proof` stays green).
+  - **`scripts/agent_mcp_smoke.sh`** (credit-free de-risk, run before any paid run): brings the
+    bridge up, lists **41 MCP tools** via the Phase-1 Python client, confirms `claude` parses the
+    HTTP MCP config and sees `godot_ai`. Caught a `docker run` **missing `-i`** (heredoc never
+    ran → false PASS) before it could mask anything.
+  - **Binary proof (one paid `claude -p` run):** issue **#111** *"add `Calculator.Subtract`"* →
+    `fresh` → the agent wrote `Subtract` + 2 gdUnit4 tests + built `issue_111.tscn` **via MCP**
+    (uid-based `ext_resource` + `.cs.uid`) → gate **PASS** (4/4, proof video) → **Ready PR #112**
+    (`Closes #111`), authored by the bot. Clean diff (5 files; no `project.godot`/addon noise —
+    the addon is gitignored, and the agent left the runtime plugin-enable unstaged).
+  - *Gotchas found & fixed:* (a) `agent_mcp_smoke` `docker run` lacked `-i` → the `bash -s`
+    heredoc ran with empty stdin → false PASS; (b) the `godot_ai` addon is **gitignored**
+    (`game/.gitignore`), so it is absent from the fresh clone — provision it from a host
+    read-only mount `/opt/godot_ai` (a runtime `git clone` of the external addon was correctly
+    **blocked by the sandbox classifier** as untrusted agent-chosen code); (c) enabling the
+    plugin makes the editor add an `[autoload]` + `[editor_plugins]` to `project.godot` —
+    committed in canonical form so it does not churn at runtime.

@@ -8,8 +8,10 @@
 #   source /scripts/bot_init.sh    # (done internally; safe to also do before)
 #   bash /scripts/agent_run.sh <issue-number>
 #
-# Scope (Phase 3): classify + plumb, agent stubbed, always a Draft PR. The done-gate and
-# Pass/Transient/Substantive label routing are Phase 4 (AGENT_CMD is the seam).
+# Scope: classify + plumb (Phase 3) + post-exit done-gate & outcome routing (Phase 4a).
+# The agent is invoked via AGENT_CMD (stub/fake until 4b wires real Claude). After it
+# returns, the SCRIPT decides the outcome and routes to a durable GitHub signal:
+#   pass -> Ready PR (Closes #n) · timeout -> Draft+needs-rerun · block/gate-fail -> Draft+blocked.
 #
 # Exit codes: 0 ok/early-exit · 64 usage/missing-issue · 65 refuse (closed-unmerged PR)
 #   · 66 stopped at soft label gate · 70 internal · 75 transient (merge conflict).
@@ -67,6 +69,17 @@ actionable_threads() {  # $1 = pr number
 apply_label() {  # $1 = pr/issue number, $2 = label  (best-effort; never fatal)
   gh label create "$2" --repo "$REPO" --color ededed --force >/dev/null 2>&1 || true
   gh pr edit "$1" --repo "$REPO" --add-label "$2" >/dev/null 2>&1 || true
+}
+remove_label() {  # $1 = pr number, $2 = label  (best-effort)
+  gh pr edit "$1" --repo "$REPO" --remove-label "$2" >/dev/null 2>&1 || true
+}
+# Post the run's durable signal: a PR comment if a PR exists, else an issue comment.
+signal() {  # $1 = body
+  if [ -n "${PR_NUM:-}" ]; then
+    gh pr comment "$PR_NUM" --repo "$REPO" --body "$1" >/dev/null 2>&1 || true
+  else
+    gh issue comment "$ISSUE" --repo "$REPO" --body "$1" >/dev/null 2>&1 || true
+  fi
 }
 
 # Pure routing decision — the heart of the state machine (no GitHub calls).
@@ -183,29 +196,88 @@ else
   } > "$PAYLOAD"
 fi
 
-# --- invoke the agent (STUB in Phase 3; AGENT_CMD is the Phase-4 seam) -------
+# --- invoke the agent under a wall-clock cap (AGENT_CMD is the seam) ----------
 # AGENT_CMD is a script PATH, run via bash (bind-mounted scripts are 0644, not +x).
-echo "== invoke agent: $AGENT_CMD =="
-export REPO OWNER NAME BRANCH PR_NUM BOT_LOGIN RUNS_DIR CLASS ISSUE
-bash "$AGENT_CMD" "$ISSUE" "$CLASS" "$PAYLOAD"
+AGENT_TIMEOUT="${AGENT_TIMEOUT:-2700}"     # ~45 min cap (env-tunable); 4b wires real Claude
+# The Godot project is the repo's game/ subdir; /project is the cloned repo (git) root.
+GAME_DIR="$PROJ/game"; PROJECT_DIR="$GAME_DIR"
+PROOF_DIR="$RUNS_DIR/proof"; mkdir -p "$PROOF_DIR"
+echo "== invoke agent: $AGENT_CMD (timeout ${AGENT_TIMEOUT}s) =="
+export REPO OWNER NAME BRANCH PR_NUM BOT_LOGIN RUNS_DIR CLASS ISSUE PROOF_DIR GAME_DIR PROJECT_DIR
+TIMED_OUT=0
+timeout "$AGENT_TIMEOUT" bash "$AGENT_CMD" "$ISSUE" "$CLASS" "$PAYLOAD"
 AGENT_RC=$?
-echo "agent exit=$AGENT_RC"
+case "$AGENT_RC" in 124|137) TIMED_OUT=1;; esac
+echo "agent exit=$AGENT_RC timed_out=$TIMED_OUT"
 
-# --- push (script owns the irreversible, outward-facing actions) -------------
-echo "== push =="
-git push -u origin "$BRANCH"
-
-# --- open/update PR (always Draft in Phase 3 — no gate to earn Ready yet) ----
-if [ "$PR_STATE" = "OPEN" ]; then
-  echo "agent_run: PR #$PR_NUM already open — updated by push."
+# --- decide the outcome (top-down; the SCRIPT decides, never the LLM) ---------
+OUTCOME=""; OUTCOME_MSG=""
+if [ "$TIMED_OUT" = 1 ]; then
+  OUTCOME=transient; OUTCOME_MSG="agent hit the ${AGENT_TIMEOUT}s wall-clock cap (timeout)"
+elif [ -f "$RUNS_DIR/BLOCKED" ]; then
+  OUTCOME=substantive; OUTCOME_MSG="agent reported a block — $(head -1 "$RUNS_DIR/BLOCKED")"
 else
+  echo "== done-gate (post-exit) =="
+  if bash /scripts/gate.sh "$ISSUE" >"$RUNS_DIR/gate.log" 2>&1; then
+    OUTCOME=pass; OUTCOME_MSG="done-gate passed (4/4 clauses)"
+  else
+    OUTCOME=substantive
+    CLAUSE="$(grep -m1 "GATE #$ISSUE: FAIL" "$RUNS_DIR/gate.log" | sed 's/.*FAIL — //')"
+    OUTCOME_MSG="done-gate failed — ${CLAUSE:-see gate.log}"
+  fi
+  tail -n 20 "$RUNS_DIR/gate.log"
+fi
+echo "OUTCOME=$OUTCOME"
+echo "OUTCOME_MSG=$OUTCOME_MSG"
+
+# --- push (always — capture whatever work exists) ----------------------------
+echo "== push =="
+git push -u origin "$BRANCH" 2>&1 || echo "agent_run: push returned nonzero (continuing)"
+AHEAD="$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)"
+
+# --- ensure a PR exists (Draft by default; a PR needs a diff) ----------------
+if [ "$PR_STATE" = "OPEN" ] && [ -n "$PR_NUM" ]; then
+  echo "agent_run: PR #$PR_NUM already open — updated by push."
+elif [ "${AHEAD:-0}" -gt 0 ]; then
   echo "== open Draft PR =="
   PR_URL="$(gh pr create --repo "$REPO" --draft --base main --head "$BRANCH" \
     --title "[agent] issue #$ISSUE" \
-    --body "Automated draft for #$ISSUE (Phase 3 — agent stubbed). Closes #$ISSUE")"
+    --body "Automated PR for #$ISSUE. Closes #$ISSUE")"
   PR_NUM="$(basename "$PR_URL")"
   echo "opened Draft PR #$PR_NUM"
+else
+  echo "agent_run: no commits ahead of main — posting the signal as an issue comment (no PR)."
 fi
+
+# --- route the outcome (script owns push + PR state + label + comment) -------
+echo "== route outcome: $OUTCOME =="
+ROUTED=""
+case "$OUTCOME" in
+  pass)
+    if [ -n "${PR_NUM:-}" ]; then
+      gh pr ready "$PR_NUM" --repo "$REPO" >/dev/null 2>&1 || true
+      remove_label "$PR_NUM" needs-rerun; remove_label "$PR_NUM" blocked
+      signal "✅ done-gate passed — marking this PR **Ready** for review. Closes #$ISSUE."
+      ROUTED="ready"
+    else
+      signal "✅ done-gate passed, but there is no diff to open a PR."
+      ROUTED="pass-no-pr"
+    fi ;;
+  transient)
+    [ -n "${PR_NUM:-}" ] && apply_label "$PR_NUM" needs-rerun
+    signal "⏱️ **transient stop** — $OUTCOME_MSG. Work pushed; just re-run (nothing to fix)."
+    ROUTED="draft+needs-rerun" ;;
+  substantive)
+    [ -n "${PR_NUM:-}" ] && apply_label "$PR_NUM" blocked
+    signal "🚫 **blocked** — $OUTCOME_MSG"
+    ROUTED="draft+blocked" ;;
+esac
+echo "ROUTED=$ROUTED pr=#${PR_NUM:-none}"
+
+# Machine-readable result, written with a DIRECT (non-tee) redirect so the proof's
+# assertions never depend on stdout-pipe flushing at container exit.
+printf 'OUTCOME=%s\nROUTED=%s\nPR=%s\nOUTCOME_MSG=%s\n' \
+  "$OUTCOME" "$ROUTED" "${PR_NUM:-}" "$OUTCOME_MSG" > "$RUNS_DIR/RESULT"
 
 # --- post-run verification: every targeted thread got a bot reply (fix only) -
 if [ "$CLASS" = "fix" ]; then
@@ -219,4 +291,4 @@ if [ "$CLASS" = "fix" ]; then
   fi
 fi
 
-echo "agent_run: done (class=$CLASS, pr=#${PR_NUM:-none})"
+echo "agent_run: done (class=$CLASS, outcome=$OUTCOME, pr=#${PR_NUM:-none})"

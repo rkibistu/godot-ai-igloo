@@ -5,14 +5,17 @@
 # Exit 0 = PASS, 1 = FAIL.
 set -uo pipefail
 ISSUE="${1:-0}"
-PROJ=/project
+PROJ="${PROJECT_DIR:-/project}"   # agent_run points this at the cloned repo's game/ subdir;
+                                  # Phase-1 callers bind-mount game/ -> /project and keep the default.
 SCENE_RES="res://test/scenes/issue_${ISSUE}.tscn"
 SCENE_FILE="${PROJ}/test/scenes/issue_${ISSUE}.tscn"
-P=/proof
+P="${PROOF_DIR:-/proof}"   # agent_run points this at the per-run dir; Phase-1 callers keep /proof
 mkdir -p "$P"
 export DISPLAY=:99
 XVFB_PID=0
-fail(){ echo "GATE #$ISSUE: FAIL — $1"; kill -9 "$XVFB_PID" 2>/dev/null; exit 1; }
+# Guard the kill: XVFB_PID is 0 until clause 2/4 starts Xvfb, and `kill -9 0` signals the
+# whole PROCESS GROUP — which nukes a parent (agent_run.sh) when the gate fails early.
+fail(){ echo "GATE #$ISSUE: FAIL — $1"; [ "${XVFB_PID:-0}" -gt 0 ] && kill -9 "$XVFB_PID" 2>/dev/null; exit 1; }
 
 echo "== clause 1: Issue scene exists =="
 [ -f "$SCENE_FILE" ] || fail "missing $SCENE_RES"

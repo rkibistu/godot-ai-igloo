@@ -14,9 +14,17 @@ config/name="GodotAiIgloo"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.6", "C#", "GL Compatibility")
 
+[autoload]
+
+_mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
+
 [dotnet]
 
 project/assembly_name="GodotAiIgloo"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/godot_ai/plugin.cfg")
 
 [rendering]
 

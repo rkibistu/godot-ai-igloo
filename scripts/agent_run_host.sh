@@ -6,8 +6,9 @@
 #
 #   bash scripts/agent_run_host.sh <issue-number>
 #
-# In Phase 3 the agent is stubbed (AGENT_CMD defaults to /scripts/agent_stub.sh inside
-# agent_run.sh). Phase 4 will export a real AGENT_CMD here.
+# Production runs use the real agent: AGENT_CMD defaults to /scripts/agent_real.sh here
+# (claude -p + editor/MCP), mounting /skills for its governing prompt. The proof scripts
+# override AGENT_CMD with the stub/fake, so they stay credit-free.
 set -euo pipefail
 IMG=godot-ai-igloo:dev
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,6 +28,10 @@ exec docker run --rm -i \
   -e CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" \
   -e IS_SANDBOX=1 \
   -e AGENT_RUN_ASSUME_READY="${AGENT_RUN_ASSUME_READY:-}" \
+  -e AGENT_TIMEOUT="${AGENT_TIMEOUT:-}" \
+  -e AGENT_CMD="${AGENT_CMD:-/scripts/agent_real.sh}" \
   -v "$ROOT/scripts:/scripts" \
+  -v "$ROOT/skills:/skills" \
   -v "$ROOT/runs:/runs" \
+  -v "$ROOT/game/addons/godot_ai:/opt/godot_ai:ro" \
   "$IMG" bash /scripts/agent_run.sh "$ISSUE"
