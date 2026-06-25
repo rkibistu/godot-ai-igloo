@@ -1,0 +1,77 @@
+# Canonical schema for a game repo's .igloo.yml (Phase 7). `igloo check` and `igloo update`
+# diff a project's .igloo.yml against this to INSTRUCT on drift — they never write the project.
+#
+# RULES for adding/changing a field (docs/adr/0004, "Instructions for future implementations"):
+#   - every new field needs an entry HERE (key, required, default, added_in) or it is invisible
+#     to check/update;
+#   - it must have a default so an older .igloo.yml without it still runs (backward-compatible);
+#   - document it inline in templates/igloo.yml.tmpl (the only docs a user gets);
+#   - if it is part of the mechanical contract (gate verifies AND agent must produce), wire BOTH
+#     gate.sh and the agent_real.sh prompt-builder to read it, and never restate it in a skill;
+#   - never add a secret here (.igloo.yml is committed/public; secrets live in ~/.igloo/.env).
+#
+# `default: __detect__` = init auto-detects (git remote / where project.godot lives); blank in the
+# file means "detect at run time" for those keys.
+
+schema_version: 1
+
+fields:
+  - key: schema_version
+    required: true
+    default: 1
+    added_in: 1
+    desc: .igloo.yml format version; bumped when the schema changes.
+
+  - key: repo
+    required: false
+    default: __detect__
+    added_in: 1
+    desc: "owner/name slug. Blank = auto-detect from `git remote origin`."
+
+  - key: game_subdir
+    required: false
+    default: __detect__
+    added_in: 1
+    desc: "Godot project dir relative to repo root (blank/'.' = repo root). Detect = where project.godot lives."
+
+  - key: godot_version
+    required: true
+    default: 4.6.3-stable
+    added_in: 1
+    desc: Godot mono version; selects the image tag (godot-ai-igloo:<godot_version>) and the download.
+
+  - key: test_command
+    required: true
+    default: dotnet test
+    added_in: 1
+    desc: Command the gate runs (cwd = game project) for the full suite; nonzero = gate fail. CONTRACT.
+
+  - key: issue_scene.scene
+    required: true
+    default: test/scenes/issue_{n}.tscn
+    added_in: 1
+    desc: "Issue-scene path relative to the game project ({n}=issue#). res://<this> + <gamedir>/<this>. CONTRACT."
+
+  - key: issue_scene.script
+    required: true
+    default: test/scenes/Issue{n}.cs
+    added_in: 1
+    desc: "Issue-scene C# script path relative to the game project ({n}=issue#). CONTRACT."
+
+  - key: issue_scene.class
+    required: true
+    default: Issue{n}
+    added_in: 1
+    desc: "Issue-scene C# class name ({n}=issue#). CONTRACT."
+
+  - key: gate.proof
+    required: false
+    default: true
+    added_in: 1
+    desc: Require the proof-video clause (clause 4). Set false only if a project cannot render.
+
+  - key: gate.extra_clauses
+    required: false
+    default: []
+    added_in: 1
+    desc: "Optional list of repo-relative scripts run as `bash <path> <issue#>`; each MUST exit 0."

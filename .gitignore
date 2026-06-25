@@ -19,3 +19,7 @@ core
 **/.mono/
 **/bin/
 **/obj/
+
+# ...except the harness dispatcher dir at the repo root /bin/ (Phase 7) — it is NOT build output.
+!/bin/
+!/bin/igloo

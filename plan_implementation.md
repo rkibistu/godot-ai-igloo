@@ -210,6 +210,66 @@ or `REVIEWER_GH_TOKEN` in the shipped script → **no LLM, fully credit-free, no
 - Tiny `agent-merge` (or just the UI) for the human squash-merge; `Closes #<n>` auto-closes.
 - Then tackle the deferred list.
 
+### Phase 7 — harness extraction (multi-repo integration) — BUILT (2026-06-25, deterministic plumbing proven credit-free; see build log)
+**Goal:** turn the self-targeting repo into a **global, install-once harness pointed at any
+Godot C# repo.** Design basis: **ADR-0004** (the full decision record + the load-bearing
+"instructions for future implementations", incl. the rules for correctly adding/changing
+`.igloo.yml` fields). Governing requirement: the harness is iterated on a lot, so updating it
+across many games must be "update once, every game benefits" — hence one global thing to
+update and per-game state the harness never auto-touches.
+
+**Install layout (decided):**
+```
+~/.igloo/harness/   ← harness clone (git pull to update); bin/igloo dispatcher, scripts/,
+                      skills/ (presets), docker/, game/ (fixture + self-test + vendored addon)
+~/.igloo/.env       ← GLOBAL secrets (BOT_GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN, opt GODOT_BIN)
+<game-repo>/.igloo.yml      ← per-game config (committed, self-documenting)
+<game-repo>/.igloo/skills/  ← per-game skills, seeded from presets then hand-tuned (committed)
+```
+
+**Deliverables:**
+1. **`~/.igloo/` install + `bin/igloo` dispatcher** (thin bash): one-line installer (clone +
+   symlink `~/.local/bin/igloo` + first `igloo build`). Subcommands: `init`, `run`, `review`,
+   `update`, `build`, `check`, `addon install`, `skills diff|update <name>`. Resolves
+   `HARNESS_HOME=~/.igloo/harness`, sources `~/.igloo/.env`, walks up from cwd for `.igloo.yml`.
+2. **Externalize the hardcoded constants** (today's couplings): `REPO` (`agent_run.sh:23`,
+   `review_setup.sh:16`) → auto-detect from `git remote origin` (override via `.igloo.yml`);
+   bot login `justfortest1234` (`bot_init.sh`, classifier) → **derive** `gh api user --jq .login`;
+   `game/` subdir + scene path → `.igloo.yml`; `IMG` → `godot-ai-igloo:<godot_version>`.
+3. **`.igloo.yml` schema + self-documenting template + `igloo check`.** Ship a versioned schema
+   (keys, required/optional, default, added-in-version). `check` (and `update`, run in a repo)
+   diffs the project's `.igloo.yml` against it and **instructs** on drift — never writes. (See
+   ADR-0004 "Instructions for future implementations" for the rules every new field must obey.)
+4. **`igloo init`:** scaffold `.igloo.yml` (auto-detect repo/subdir/godot_version) + seed
+   `.igloo/skills/` from presets + append `.gitignore` + provision the addon locally;
+   **validate-and-instruct** for gdUnit4 (checklist, no `.csproj`/`project.godot` mutation).
+5. **Parameterize the gate** (`gate.sh`): read `test_command`, `issue_scene` paths,
+   `godot_version`, `gate.proof`, `gate.extra_clauses` from `.igloo.yml` instead of hardcoding;
+   run extra-clause hooks (each must exit 0). Gate logic stays global.
+6. **Contract injection + skills relocation:** the prompt-builder (`agent_real.sh`) generates the
+   mechanical "contract block" from `.igloo.yml` and prepends it to the user prompt; **skills move
+   to the game repo's `.igloo/skills/`** (drop the `-v $ROOT/skills:/skills` mount — the container
+   gets them via the clone) and **must stay contract-free**.
+7. **Addon vendoring flip:** commit `game/addons/godot_ai/` **in the harness fixture only**
+   (remove it from the harness `game/.gitignore`); repoint the 3 provisioning sites
+   (`agent_run_host.sh:36` mount, `agent_run.sh:218` copy, `review_setup.sh` ADDON_SRC) at
+   `$HARNESS_HOME/game/addons/godot_ai`; consumer games keep it gitignored. Keep committing the
+   canonical `godot_ai` lines in `project.godot` (no scrub — runtime enable stays a no-op).
+8. **Version-tagged local image + `igloo update`:** `igloo build` → `godot-ai-igloo:<godot_version>`
+   (Dockerfile `ARG GODOT_VERSION`); `igloo update` = `git -C ~/.igloo/harness pull` + rebuild only
+   if image inputs changed + config-drift instruct. Skill refresh stays **explicit/opt-in**
+   (`skills diff` / `skills update <name>`); never auto-migrated. No registry.
+
+**Binary proof:** stand up a **second, separate** Godot C# repo (not the harness). `igloo init`
+it (only artifacts created: `.igloo.yml` + `.igloo/skills/` + local addon + gitignore lines);
+file a `ready-for-agent` issue → **`igloo run <n>` → Ready PR** that passes the gate → **`igloo
+review <n>`** opens worktree+editor → human inline comment → **`igloo run <n>` → surgical fix +
+in-thread reply → Ready** — **all with zero edits to harness code**, proving the only per-game
+surface is `.igloo.yml` + skills. Plus: `igloo check` flags an injected config-drift and `igloo
+update` instructs without mutating any project file. (The paid `claude -p` runs are the user's to
+fire; the deterministic plumbing — dispatcher, init, schema diff, gate parameterization, addon
+provisioning, version-tagged build — is provable credit-free against the fixture.)
+
 ---
 
 ## Deferred (leave clean seams; do not let the flow depend on these)
@@ -475,3 +535,45 @@ or `REVIEWER_GH_TOKEN` in the shipped script → **no LLM, fully credit-free, no
     `Closes #n` auto-closes) → **Phase 7** = harness extraction (`--repo` + a thin `.igloo.yml`),
     the decided-but-deferred "shared harness pointed at any repo" integration model, done after
     Phase 5 so it captures Phase 5's host couplings too.
+
+- **Phase 7 — BUILT (2026-06-25), deterministic plumbing proven credit-free.** The self-targeting
+  repo is now a global, install-once harness pointable at any Godot C# repo (design: ADR-0004).
+  Built in 5 staged slices, each proven on the bundled `game/` fixture before the next:
+  - **Stage 0 — config foundation.** `scripts/lib/config.sh` (`cfg_get`/`cfg_list`/`cfg_subst` over
+    **`yq`**, mikefarah; resolves `$IGLOO_YQ`→PATH→`~/.igloo/bin`→`/usr/local/bin`; tolerant of a
+    missing `.igloo.yml` → literal defaults), `schema/igloo.schema.yml` (versioned key list:
+    required/default/added_in), self-documenting `templates/igloo.yml.tmpl`, the fixture's own
+    `/.igloo.yml`, and `yq` baked into the image (`docker/Dockerfile`). *Proof:* host + in-container
+    readers resolve scalars/nested/lists/defaults + `{n}` substitution.
+  - **Stage 1 — externalize constants.** `REPO`→`IGLOO_REPO` (host-resolved pre-clone; auto-detect
+    from `git remote origin`); bot login/email **derived** `gh api user` (drops hardcoded
+    `justfortest1234`/`142491623` — verified to reproduce them exactly); `game_subdir` from config;
+    `IMG`→`godot-ai-igloo:<godot_version>` (`docker/build.sh` now tags by version + `:dev` alias);
+    `review_setup` repo/subdir from config + git ops pointable. *Proof:* host-side resolution +
+    mocked-`gh` identity derivation, side-effect-free.
+  - **Stage 2 — parameterize the gate.** `gate.sh` reads `test_command`/`issue_scene.*`/`gate.proof`/
+    `gate.extra_clauses` from `.igloo.yml`; runs extra-clause hooks (each must exit 0); logic stays
+    global. *Proof:* fixture gate **PASS 4/4** reading from config + a passing extra-clause, and the
+    fail-path proven (a hook exiting 1 fails the gate).
+  - **Stage 3 — contract injection + skills relocation.** `agent_real.sh` generates the mechanical
+    **contract block** from `.igloo.yml` (same source the gate reads → cannot drift); skills moved to
+    the game repo's `.igloo/skills/` (the `-v skills` mount dropped — they arrive via the clone).
+    *Proof:* `CLAUDE_DRYRUN` resolves per-class skill + renders the contract with `{n}` substituted.
+  - **Stage 4 — addon vendoring flip.** `game/addons/godot_ai/` is now **committed in the harness
+    fixture only** (un-ignored; 223 files staged); consumer games keep it gitignored; the 3
+    provisioning sites point at `$HARNESS_HOME/game/addons/godot_ai`; canonical `project.godot` lines
+    stay committed (no scrub). *Proof:* `check-ignore` + index tracking + `igloo init` gitignores it
+    in a consumer game.
+  - **Stage 5 — dispatcher + install + lifecycle.** `bin/igloo` (run/review/init/check/build/update/
+    addon/skills) + `install.sh` (clone-or-`--dev`-symlink `~/.igloo/harness`, fetch `yq`, symlink
+    `~/.local/bin/igloo`, scaffold `~/.igloo/.env`, first build). *Proof (against a throwaway second
+    repo, no GitHub):* `init` (auto-detect repo/subdir, scaffold config + skills + gitignore +
+    addon, gdUnit4 validate-and-instruct, zero project mutation); `check` (ok; injected drift →
+    rc 1); `skills diff`; `addon install`; **`update` writes NO project file** (checksum-verified);
+    `install.sh --dev --no-build` in a sandboxed `HOME`. (Root `.gitignore` `**/bin/` negated for
+    the dispatcher dir.)
+  - **Open (the user's to fire — GitHub side effects + paid credits):** the **binary proof** —
+    `igloo init` a real second Godot C# repo and drive `run → review → fix → check/update`
+    end-to-end with zero harness-code edits (deterministic parts credit-free with a fake
+    `AGENT_CMD`; the `claude -p` runs are paid). Restore a fake agent via
+    `git checkout fd72b70 -- scripts/<name>.sh`.

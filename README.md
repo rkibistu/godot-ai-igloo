@@ -7,10 +7,14 @@ replies in-thread. **GitHub is the single source of truth**; the container is am
 `--rm`. A deterministic script owns every state transition and objectively verifies the work —
 the LLM only writes code, commits, and in-thread replies. It never decides "am I done?".
 
-> Status: **Phases 1–5 complete** — the full inner loop runs end-to-end. Merge is a manual
-> GitHub action (Phase 6). Multi-repo support is the next build (Phase 7). See
-> [`plan_implementation.md`](plan_implementation.md) for the phased build + log, and
-> [`CONTEXT.md`](CONTEXT.md) for the canonical glossary.
+> Status: **Phases 1–5 complete; Phase 7 (multi-repo harness) built.** The full inner loop runs
+> end-to-end, and the harness is now installable globally (`install.sh` → `~/.igloo` + the `igloo`
+> dispatcher) and pointable at any Godot C# repo via a committed `.igloo.yml`. Merge stays a manual
+> GitHub action (Phase 6). The deterministic Phase-7 plumbing is proven credit-free; the end-to-end
+> binary proof against a fresh second repo is the user's to fire. See
+> [`plan_implementation.md`](plan_implementation.md) for the phased build + log,
+> [`docs/adr/0004`](docs/adr/0004-harness-extraction-integration-model.md) for the integration model,
+> and [`CONTEXT.md`](CONTEXT.md) for the canonical glossary.
 
 ---
 
@@ -92,8 +96,13 @@ cp .env.example .env
 #   GODOT_BIN / GODOT_ZIP   = host Godot for review-setup             [optional]
 ```
 
-> The target repo is currently hardcoded to `rkibistu/godot-ai-igloo` (`scripts/agent_run.sh`).
-> Pointing the harness at any repo via `--repo` + a per-repo config is the planned Phase-7 refactor.
+> **Multi-repo (Phase 7).** The per-script commands below self-target the bundled `game/` fixture.
+> To drive *any* Godot C# repo, install the harness once (`bash install.sh` → `~/.igloo/harness` +
+> the `igloo` dispatcher on your PATH; secrets go in `~/.igloo/.env`), then in the target repo run
+> `igloo init` (scaffolds a committed `.igloo.yml` + `.igloo/skills/` + the addon), and use
+> `igloo run <issue#>` / `igloo review <issue#>` / `igloo check` / `igloo update`. The mechanical
+> contract (repo, `game_subdir`, `godot_version`, `test_command`, Issue-scene paths, gate knobs)
+> lives only in `.igloo.yml`. See [`docs/adr/0004`](docs/adr/0004-harness-extraction-integration-model.md).
 
 ---
 

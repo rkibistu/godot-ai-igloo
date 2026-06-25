@@ -1,0 +1,39 @@
+# .igloo.yml — per-game config for the godot-ai-igloo harness.  COMMITTED to your game repo;
+# it travels with the clone so the agent container reads it for free.  NEVER put secrets here
+# (this file is public) — secrets live globally in ~/.igloo/.env.  Edit and re-run `igloo check`.
+#
+# `{n}` in a path/name is the issue number (issue #7 -> Issue7, issue_7.tscn).
+
+# Format version of this file. Leave as-is; `igloo update` tells you if it needs bumping.
+schema_version: 1
+
+# GitHub repo this game lives in, as owner/name. Blank = auto-detect from `git remote origin`.
+repo: __REPO__
+
+# The Godot project directory, relative to the repo root. Use "." (or blank) if project.godot
+# is at the repo root. Auto-detected at init from where project.godot was found.
+game_subdir: __GAME_SUBDIR__
+
+# Godot mono version. Selects the toolchain image tag (godot-ai-igloo:<godot_version>) and the
+# engine download. Must match a version the harness can build (`igloo build`).
+godot_version: __GODOT_VERSION__
+
+# The full-suite command the done-gate runs, with the game project as the working directory.
+# A nonzero exit fails the gate. (gdUnit4 via dotnet test is the reference.)
+test_command: dotnet test
+
+# The Issue-scene contract — what every run must produce and the gate verifies. The agent is
+# TOLD these exact paths/class (injected into its prompt); your skills must NOT restate them.
+# Paths are relative to the game project (game_subdir). {n} = issue number.
+issue_scene:
+  scene:  test/scenes/issue_{n}.tscn   # bootable, self-quitting scene the gate renders
+  script: test/scenes/Issue{n}.cs      # its C# script
+  class:  Issue{n}                     # its C# class name
+
+# Done-gate tuning. Logic is global; only these values vary per project.
+gate:
+  proof: true            # require a proof-video clause (set false only if the project can't render)
+  extra_clauses: []      # optional repo-relative scripts run as `bash <path> <issue#>`; each MUST
+                         # exit 0. Example:
+                         #   extra_clauses:
+                         #     - .igloo/checks/no_warnings.sh

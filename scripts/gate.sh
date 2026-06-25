@@ -7,8 +7,19 @@ set -uo pipefail
 ISSUE="${1:-0}"
 PROJ="${PROJECT_DIR:-/project}"   # agent_run points this at the cloned repo's game/ subdir;
                                   # Phase-1 callers bind-mount game/ -> /project and keep the default.
-SCENE_RES="res://test/scenes/issue_${ISSUE}.tscn"
-SCENE_FILE="${PROJ}/test/scenes/issue_${ISSUE}.tscn"
+
+# Phase 7: the gate LOGIC is global; the project-specific values come from .igloo.yml (read by
+# both this gate AND the agent prompt-builder, so they cannot drift). agent_run exports
+# IGLOO_CONFIG=/project/.igloo.yml; standalone callers with no .igloo.yml get the literal defaults.
+# shellcheck disable=SC1091
+source "$(dirname "$0")/lib/config.sh"
+TEST_CMD="$(cfg_get .test_command 'dotnet test')"
+SCENE_REL="$(cfg_subst "$(cfg_get .issue_scene.scene 'test/scenes/issue_{n}.tscn')" "$ISSUE")"
+SCENE_RES="res://$SCENE_REL"
+SCENE_FILE="${PROJ}/$SCENE_REL"
+GATE_PROOF="$(cfg_get .gate.proof true)"
+# Extra-clause hook paths are relative to the REPO root (the dir holding .igloo.yml), not the game dir.
+REPO_ROOT="$(dirname "${IGLOO_CONFIG:-$PROJ/.igloo.yml}")"
 P="${PROOF_DIR:-/proof}"   # agent_run points this at the per-run dir; Phase-1 callers keep /proof
 mkdir -p "$P"
 export DISPLAY=:99
@@ -21,8 +32,8 @@ echo "== clause 1: Issue scene exists =="
 [ -f "$SCENE_FILE" ] || fail "missing $SCENE_RES"
 echo "  ok: $SCENE_RES present"
 
-echo "== clause 3: full test suite (gdUnit4 via dotnet test) =="
-( cd "$PROJ" && dotnet test --nologo >"$P/tests_${ISSUE}.log" 2>&1 ); TRC=$?
+echo "== clause 3: full test suite ($TEST_CMD) =="
+( cd "$PROJ" && eval "$TEST_CMD" >"$P/tests_${ISSUE}.log" 2>&1 ); TRC=$?
 grep -E "Passed!|Failed!|error" "$P/tests_${ISSUE}.log" | tail -2
 [ "$TRC" -eq 0 ] || fail "test suite rc=$TRC (see proof/tests_${ISSUE}.log)"
 echo "  ok: suite passed"
@@ -51,7 +62,21 @@ echo "  scene run rc=$RRC"; tail -4 "$P/run_${ISSUE}.log"
 grep -qE "SCRIPT ERROR|Parse Error|Unhandled exception|Failed to instantiate|Failed to load" "$P/run_${ISSUE}.log" \
     && fail "runtime errors in scene (see proof/run_${ISSUE}.log)"
 [ "$RRC" -eq 0 ] || fail "scene exited non-zero (rc=$RRC)"
-[ -s "$P/issue_${ISSUE}.mp4" ] || fail "no proof video produced"
-echo "  ok: booted clean; video $(stat -c%s "$P/issue_${ISSUE}.mp4") bytes, still issue_${ISSUE}.png"
+if [ "$GATE_PROOF" = "true" ]; then
+  [ -s "$P/issue_${ISSUE}.mp4" ] || fail "no proof video produced"
+  echo "  ok: booted clean; video $(stat -c%s "$P/issue_${ISSUE}.mp4") bytes, still issue_${ISSUE}.png"
+else
+  echo "  ok: booted clean (gate.proof=false — proof video not required)"
+fi
+
+# clause 5 (optional): project-declared extra clauses, each run as `bash <repo-relative> <issue#>`.
+# A nonzero exit fails the gate — this is the ONLY per-project extension point (logic stays global).
+while IFS= read -r hook; do
+  [ -n "$hook" ] || continue
+  echo "== extra clause: $hook =="
+  [ -f "$REPO_ROOT/$hook" ] || fail "extra clause not found: $hook"
+  ( cd "$REPO_ROOT" && bash "$hook" "$ISSUE" ) || fail "extra clause failed: $hook"
+  echo "  ok: $hook"
+done < <(cfg_list .gate.extra_clauses)
 
 echo "GATE #$ISSUE: PASS"

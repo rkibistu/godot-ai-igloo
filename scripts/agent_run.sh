@@ -20,7 +20,10 @@ set -uo pipefail
 ISSUE="${1:-}"
 case "$ISSUE" in ''|*[!0-9]*) echo "agent_run: usage: agent_run.sh <issue-number>" >&2; exit 64;; esac
 
-REPO="rkibistu/godot-ai-igloo"
+# Target repo is a PRE-CLONE fact, so it comes from the host launcher via env (the host resolves
+# it from the game repo's .igloo.yml / git remote). Post-clone facts (game_subdir, scene paths,
+# test command) are read from the committed .igloo.yml AFTER the clone — see below.
+REPO="${IGLOO_REPO:?agent_run: IGLOO_REPO unset (the host launcher must pass the owner/name slug)}"
 OWNER="${REPO%/*}"; NAME="${REPO#*/}"
 REPO_URL="https://github.com/${REPO}.git"
 BRANCH="agent/issue-${ISSUE}"
@@ -186,6 +189,18 @@ rm -rf "$PROJ"
 git clone --quiet "$REPO_URL" "$PROJ"
 cd "$PROJ"
 
+# --- post-clone config: the committed .igloo.yml is the single source for game_subdir / scene
+# paths / test command, read by BOTH this spine (here) and the gate + agent later (same file,
+# so they cannot drift). Export IGLOO_CONFIG so every downstream reader uses this exact file. ---
+export IGLOO_CONFIG="$PROJ/.igloo.yml"
+[ -f "$IGLOO_CONFIG" ] || { echo "agent_run: $REPO has no .igloo.yml at its root — run 'igloo init' in that repo." >&2; exit 64; }
+# shellcheck disable=SC1091
+source /scripts/lib/config.sh
+GAME_SUBDIR="$(cfg_get .game_subdir game)"
+case "$GAME_SUBDIR" in ''|.|__detect__) GAME_SUBDIR="";; esac
+GAME_DIR="$PROJ${GAME_SUBDIR:+/$GAME_SUBDIR}"; PROJECT_DIR="$GAME_DIR"
+echo "agent_run: game project dir = $GAME_DIR"
+
 echo "== prepare branch ($CLASS) =="
 case "$CLASS" in
   fresh)
@@ -212,10 +227,10 @@ esac
 # error grep trips. The real agent (agent_real.sh) also needs the bridge up for MCP.
 # Provision it ONCE here, from the host read-only mount, so the gate is robust for ANY
 # AGENT_CMD (real/fake/stub). It is gitignored -> never enters the agent's commit/PR.
-if [ ! -d "$PROJ/game/addons/godot_ai" ] && [ -d /opt/godot_ai ]; then
+if [ ! -d "$GAME_DIR/addons/godot_ai" ] && [ -d /opt/godot_ai ]; then
   echo "== provision godot_ai addon from /opt/godot_ai =="
-  mkdir -p "$PROJ/game/addons"
-  cp -r /opt/godot_ai "$PROJ/game/addons/godot_ai"
+  mkdir -p "$GAME_DIR/addons"
+  cp -r /opt/godot_ai "$GAME_DIR/addons/godot_ai"
 fi
 
 # --- gather payload ----------------------------------------------------------
@@ -254,11 +269,10 @@ fi
 # --- invoke the agent under a wall-clock cap (AGENT_CMD is the seam) ----------
 # AGENT_CMD is a script PATH, run via bash (bind-mounted scripts are 0644, not +x).
 AGENT_TIMEOUT="${AGENT_TIMEOUT:-2700}"     # ~45 min cap (env-tunable); 4b wires real Claude
-# The Godot project is the repo's game/ subdir; /project is the cloned repo (git) root.
-GAME_DIR="$PROJ/game"; PROJECT_DIR="$GAME_DIR"
+# GAME_DIR / PROJECT_DIR were resolved post-clone from .igloo.yml's game_subdir (see above).
 PROOF_DIR="$RUNS_DIR/proof"; mkdir -p "$PROOF_DIR"
 echo "== invoke agent: $AGENT_CMD (timeout ${AGENT_TIMEOUT}s) =="
-export REPO OWNER NAME BRANCH PR_NUM BOT_LOGIN RUNS_DIR CLASS ISSUE PROOF_DIR GAME_DIR PROJECT_DIR
+export REPO OWNER NAME BRANCH PR_NUM BOT_LOGIN RUNS_DIR CLASS ISSUE PROOF_DIR GAME_DIR PROJECT_DIR GAME_SUBDIR IGLOO_CONFIG
 TIMED_OUT=0
 timeout "$AGENT_TIMEOUT" bash "$AGENT_CMD" "$ISSUE" "$CLASS" "$PAYLOAD"
 AGENT_RC=$?
