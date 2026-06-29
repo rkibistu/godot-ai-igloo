@@ -101,6 +101,11 @@ cmd_init() {
   if [ -f "$gi" ] && grep -qxF "$ign" "$gi"; then echo "  .gitignore already ignores $ign"
   else printf '\n# godot_ai MCP addon — provisioned by the harness at runtime, not committed.\n%s\n' "$ign" >> "$gi"; echo "  appended $ign to ${gi#"$repo"/}"; fi
 
+  # 3b) gitignore the per-game run-log dir at the REPO ROOT (logs/transcripts/proof videos; never committed)
+  local rgi="$repo/.gitignore" rign="/.igloo/runs/"
+  if [ -f "$rgi" ] && grep -qxF "$rign" "$rgi"; then echo "  .gitignore already ignores $rign"
+  else printf '\n# igloo per-run logs (run.log, gate.log, proof/*.mp4) — written into the repo, not committed.\n%s\n' "$rign" >> "$rgi"; echo "  appended $rign to .gitignore"; fi
+
   # 4) provision the addon locally (so the editor opens cleanly right now)
   cmd_addon_install_dir "$repo" "$subdir"
 

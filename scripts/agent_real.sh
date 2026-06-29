@@ -94,7 +94,7 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   sleep 3
 done
 if [ "$BRIDGE" != 1 ]; then
-  echo "editor/MCP bridge did not start (see runs/.../editor.log)" > "$RUNS_DIR/BLOCKED"
+  echo "editor/MCP bridge did not start (see .igloo/runs/<issue>/<ts>/editor.log)" > "$RUNS_DIR/BLOCKED"
   echo "agent_real: bridge DOWN -> BLOCKED"; exit 0
 fi
 echo "agent_real: bridge up at http://127.0.0.1:$HTTP_PORT/mcp"
@@ -132,5 +132,5 @@ claude -p "$PROMPT" \
   --dangerously-skip-permissions \
   >"$RUNS_DIR/claude.log" 2>&1
 CRC=$?
-echo "agent_real: claude rc=$CRC (transcript: runs/.../claude.log)"
+echo "agent_real: claude rc=$CRC (transcript: .igloo/runs/<issue>/<ts>/claude.log)"
 exit "$CRC"

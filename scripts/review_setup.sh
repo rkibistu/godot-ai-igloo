@@ -31,6 +31,7 @@ esac
 GAME_SUBDIR="$(cfg_get .game_subdir game)"; case "$GAME_SUBDIR" in .|__detect__) GAME_SUBDIR="";; esac
 GODOT_VERSION="$(cfg_get .godot_version 4.6.3-stable)"
 ADDON_SRC="$HARNESS_HOME/game/addons/godot_ai"      # vendored in the harness fixture (gitignored in games)
+LOGS_DIR="$PROJECT_DIR/.igloo/runs"                 # per-game run logs live in the game repo (gitignored)
 REVIEW_WORKTREE_DIR="${REVIEW_WORKTREE_DIR:-$(dirname "$PROJECT_DIR")/$(basename "$PROJECT_DIR")-review}"
 GODOT_ZIP="${GODOT_ZIP:-$HOME/Downloads/Godot_v${GODOT_VERSION}_mono_linux_x86_64.zip}"
 GODOT_CACHE="$HARNESS_HOME/.tools/godot"            # where the zip is extracted (gitignored)
@@ -125,9 +126,9 @@ else
     exit 0
   fi
   echo "== launch Godot editor: $GODOT_BIN --editor --path $GAME_DIR =="
-  mkdir -p "$HARNESS_HOME/runs"
-  nohup "$GODOT_BIN" --editor --path "$GAME_DIR" >"$HARNESS_HOME/runs/review-issue-${ISSUE}.editor.log" 2>&1 &
-  echo "review-setup: editor launching (pid $!); log -> runs/review-issue-${ISSUE}.editor.log"
+  mkdir -p "$LOGS_DIR"
+  nohup "$GODOT_BIN" --editor --path "$GAME_DIR" >"$LOGS_DIR/review-issue-${ISSUE}.editor.log" 2>&1 &
+  echo "review-setup: editor launching (pid $!); log -> .igloo/runs/review-issue-${ISSUE}.editor.log"
 fi
 
 cat <<EOF

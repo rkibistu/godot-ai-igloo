@@ -116,7 +116,8 @@ bash scripts/agent_run_host.sh <issue#>
 
 Spins a fresh `--rm` container, classifies the issue, prepares `agent/issue-<n>`, runs the real
 agent (`claude -p` + the Godot editor + `godot_ai` MCP), gates the result, and pushes a PR with
-the right signal. Per-run logs land in `runs/<issue>/<timestamp>/` (tee'd out of the container).
+the right signal. Per-run logs land in the **game repo's** gitignored `.igloo/runs/<issue>/<timestamp>/`
+(tee'd out of the container: `run.log`, `gate.log`, and `proof/issue_<n>.mp4`).
 
 The agent only proceeds on issues labeled **`ready-for-agent`** (set `AGENT_RUN_ASSUME_READY=1`
 to override). Useful knobs: `AGENT_TIMEOUT` (wall-clock cap, default ~45 min).

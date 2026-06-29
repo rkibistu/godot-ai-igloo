@@ -355,7 +355,8 @@ provisioning, version-tagged build — is provable credit-free against the fixtu
   (`agent-run <issue#>`) is built and proven — classify + plumb, **agent stubbed, zero LLM
   in any transition**. Scripts: `scripts/agent_run.sh` (the spine), `scripts/agent_stub.sh`
   (the Phase-4 `AGENT_CMD` seam), `scripts/agent_run_host.sh` (host launcher, mounts
-  `runs/` for tee'd logs), `scripts/phase3_proof.sh` (the binary proof).
+  `runs/` for tee'd logs — Phase 7 (2026-06-29) relocated these into the game repo's gitignored
+  `.igloo/runs/`), `scripts/phase3_proof.sh` (the binary proof).
   - **Classifier** = pure `classify_from_facts(issue_state, pr_state, pr_is_draft,
     has_actionable_thread, branch_exists)` — the 7-row table, reordered so a
     **closed-unmerged PR is checked before the "no PR" rows**. Facts gathered with **no
@@ -577,3 +578,18 @@ provisioning, version-tagged build — is provable credit-free against the fixtu
     end-to-end with zero harness-code edits (deterministic parts credit-free with a fake
     `AGENT_CMD`; the `claude -p` runs are paid). Restore a fake agent via
     `git checkout fd72b70 -- scripts/<name>.sh`.
+
+- **Phase 7 — post-build polish (2026-06-29, review-driven; deterministic, credit-free).** Two
+  changes from the user's Phase-7 review:
+  - **Per-run logs moved into the game repo.** The bind-mount source moved from the harness's
+    `runs/` to the game repo's gitignored **`.igloo/runs/`** — a single `LOGS_DIR` var in
+    `agent_run_host.sh` + `review_setup.sh`; the container path `/runs` is unchanged, so
+    `agent_run.sh`/`gate.sh`/`agent_real.sh` (which write *relative* to `RUNS_DIR`) follow for free.
+    `igloo init` now appends `/.igloo/runs/` to the repo-root `.gitignore`; the bundled fixture
+    (self-target, `PROJECT_DIR == HARNESS_HOME`) writes to `$HARNESS_HOME/.igloo/runs/`. Each game's
+    logs — including `proof/issue_<n>.mp4` — now live next to its code, not in the shared harness clone.
+  - **Clearer `igloo run` failure messages.** The issue probe in `agent_run.sh` no longer collapses
+    every `gh issue view` failure into "issue #n not found". A diagnostic ladder names the actual
+    cause — rate-limit → token/network loss → repo missing/no-access → number-is-a-PR →
+    genuinely-absent — and the `bot_init` failure path no longer mis-guesses "GH_TOKEN unset?" when
+    the token is merely expired.

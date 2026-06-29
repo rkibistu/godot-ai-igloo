@@ -40,7 +40,11 @@ case "$REPO" in ''|__detect__)
 esac
 [ -n "$REPO" ] || { echo "agent-run: could not resolve target repo (set 'repo:' in $PROJECT_DIR/.igloo.yml)" >&2; exit 1; }
 
-mkdir -p "$HARNESS_HOME/runs"
+# Per-game run logs live INSIDE the game repo (gitignored .igloo/runs/), not in the harness clone.
+# Self-target (PROJECT_DIR == HARNESS_HOME) keeps them under the fixture, exactly as before.
+LOGS_DIR="$PROJECT_DIR/.igloo/runs"
+mkdir -p "$LOGS_DIR"
+echo "agent-run: logs -> $LOGS_DIR/$ISSUE/<timestamp>/  (run.log, gate.log, proof/issue_$ISSUE.mp4)"
 
 exec docker run --rm -i \
   -e GH_TOKEN="$BOT_GH_TOKEN" \
@@ -51,6 +55,6 @@ exec docker run --rm -i \
   -e AGENT_TIMEOUT="${AGENT_TIMEOUT:-}" \
   -e AGENT_CMD="${AGENT_CMD:-/scripts/agent_real.sh}" \
   -v "$HARNESS_HOME/scripts:/scripts" \
-  -v "$HARNESS_HOME/runs:/runs" \
+  -v "$LOGS_DIR:/runs" \
   -v "$HARNESS_HOME/game/addons/godot_ai:/opt/godot_ai:ro" \
   "$IMG" bash /scripts/agent_run.sh "$ISSUE"

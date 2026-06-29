@@ -46,7 +46,9 @@ per-game state is a committed, self-documenting `.igloo.yml` (parsed by `yq`, re
 `.igloo/skills/`. The `godot_ai` addon is **vendored in the harness fixture** (`game/addons/godot_ai`
 now tracked) and provisioned into consumer games (which gitignore it). Constants are externalized
 (`IGLOO_REPO` + auto-detect; bot identity **derived** via `gh api user`; `IMG`→`:<godot_version>`;
-gate + agent prompt both read `.igloo.yml`). Design + the load-bearing `.igloo.yml`-field rules:
+gate + agent prompt both read `.igloo.yml`; **per-run logs write to each game repo's gitignored
+`.igloo/runs/`** — relocated from the harness `runs/` 2026-06-29, so each game's logs/`.mp4` sit next
+to its code). Design + the load-bearing `.igloo.yml`-field rules:
 `docs/adr/0004`; staged build log + per-stage proofs: `plan_implementation.md` Phase 7. **Next:
 the user-fired binary proof — `igloo init` a second repo and drive `run→review→fix` end-to-end
 (deterministic parts credit-free with a fake `AGENT_CMD`; paid `claude -p` runs are the user's).**
