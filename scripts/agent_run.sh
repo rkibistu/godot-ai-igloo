@@ -14,7 +14,7 @@
 #   pass -> Ready PR (Closes #n) · timeout -> Draft+needs-rerun · block/gate-fail -> Draft+blocked.
 #
 # Exit codes: 0 ok/early-exit · 64 usage/missing-issue · 65 refuse (closed-unmerged PR)
-#   · 66 stopped at soft label gate · 70 internal · 75 transient (merge conflict).
+#   · 66 stopped at soft label gate · 70 internal/environment (auth, network, repo access) · 75 transient.
 set -uo pipefail
 
 ISSUE="${1:-}"
@@ -38,7 +38,7 @@ echo "== agent-run #$ISSUE @ $(date -u +%FT%TZ) =="
 
 # --- identity + HTTPS auth (single source of the bot login/email) ---
 # shellcheck disable=SC1091
-source /scripts/bot_init.sh || { echo "agent_run: bot_init failed (GH_TOKEN unset?)"; exit 70; }
+source /scripts/bot_init.sh || { echo "agent_run: bot_init failed — see the bot_init message above (usually a missing/invalid/expired BOT_GH_TOKEN)." >&2; exit 70; }
 # bot_init exports nothing but, sourced, leaves $BOT_LOGIN / $BOT_EMAIL in scope.
 
 # --- helpers -----------------------------------------------------------------
@@ -133,10 +133,57 @@ classify_from_facts() {  # $1 issue_state $2 pr_state $3 pr_draft $4 has_thread 
   if [ "$branch" = "true" ]; then echo resume-fresh; else echo fresh; fi
 }
 
+# --- diagnose a failed issue probe -------------------------------------------
+# Pinpoints WHY `gh issue view` failed instead of collapsing every cause into "not
+# found". A positive ladder (rate-limit -> token/network -> repo access -> issue-vs-PR
+# -> genuinely-absent) so the message names the ACTUAL problem. The token is already
+# validated by bot_init, so the common real causes here are a wrong `repo:` slug or the
+# bot lacking access. Only ever reached on the failure path; always exits.
+diagnose_issue_probe() {  # $1 = stderr captured from the failed gh issue view
+  local gherr="$1" who flat
+  flat="$(printf '%s' "$gherr" | tr '\n' ' ')"
+
+  if printf '%s' "$flat" | grep -qiE 'rate limit|secondary rate|abuse detection'; then
+    echo "agent_run: GitHub rate-limited this request — wait a bit and rerun." >&2
+    [ -n "$flat" ] && echo "  gh said: $flat" >&2
+    exit 70
+  fi
+
+  # token still good? (bot_init validated it; a failure here = revoked/expired or network/DNS)
+  if ! who="$(gh api user --jq .login 2>/dev/null)" || [ -z "$who" ]; then
+    echo "agent_run: lost GitHub API access (BOT_GH_TOKEN revoked/expired, or network/DNS down)." >&2
+    [ -n "$flat" ] && echo "  gh said: $flat" >&2
+    exit 70
+  fi
+
+  # repo reachable as this bot?
+  if ! gh repo view "$REPO" --json name >/dev/null 2>&1; then
+    echo "agent_run: repo '$REPO' does not exist, or the bot ($who) has no access to it." >&2
+    echo "  Fix: check 'repo:' (owner/name) in the game's .igloo.yml, and that $who is a collaborator with push access." >&2
+    exit 70
+  fi
+
+  # the number is a PR, not an issue?
+  if gh pr view "$ISSUE" --repo "$REPO" --json number >/dev/null 2>&1; then
+    echo "agent_run: #$ISSUE in $REPO is a PULL REQUEST, not an issue — pass an issue number." >&2
+    exit 64
+  fi
+
+  # genuinely no such issue
+  echo "agent_run: issue #$ISSUE does not exist in $REPO (bot $who is authenticated; the repo is reachable)." >&2
+  [ -n "$flat" ] && echo "  gh said: $flat" >&2
+  exit 64
+}
+
 # --- probes (no clone — git ls-remote + gh query the remote directly) --------
 echo "== probe =="
-ISTATE="$(gh issue view "$ISSUE" --repo "$REPO" --json state --jq .state 2>/dev/null || echo MISSING)"
-[ "$ISTATE" = "MISSING" ] && { echo "agent_run: issue #$ISSUE not found in $REPO." >&2; exit 64; }
+_IERR="$(mktemp)"
+ISTATE="$(gh issue view "$ISSUE" --repo "$REPO" --json state --jq .state 2>"$_IERR")" || ISTATE=""
+if [ -z "$ISTATE" ] || [ "$ISTATE" = "null" ]; then
+  _msg="$(cat "$_IERR")"; rm -f "$_IERR"
+  diagnose_issue_probe "$_msg"   # prints the precise cause, then exits
+fi
+rm -f "$_IERR"
 
 # Most-recent PR (by number) whose head is our branch, across all states.
 PRLINE="$(gh pr list --repo "$REPO" --head "$BRANCH" --state all \
