@@ -38,6 +38,12 @@ RUN curl -fsSL -o /tmp/godot.zip \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
+# --- yq (mikefarah) — parses the committed .igloo.yml; scripts/lib/config.sh resolves it here ---
+ARG YQ_VERSION=v4.44.6
+RUN curl -fsSL -o /usr/local/bin/yq \
+      "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" \
+    && chmod +x /usr/local/bin/yq
+
 # --- Claude Code CLI (auth injected at runtime via CLAUDE_CODE_OAUTH_TOKEN, never baked) ---
 RUN curl -fsSL https://claude.ai/install.sh | bash
 

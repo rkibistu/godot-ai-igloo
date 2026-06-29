@@ -1,0 +1,21 @@
+# .igloo.yml for the harness's bundled FIXTURE game (game/). This repo is both the harness and
+# its own self-test target (docs/adr/0004 decision 12): this config is the first consumer of the
+# .igloo.yml path, so the fixture flow exercises every reader. Real games get their own, scaffolded
+# by `igloo init` from templates/igloo.yml.tmpl. NEVER put secrets here — see ~/.igloo/.env.
+
+schema_version: 1
+
+repo: rkibistu/godot-ai-igloo
+game_subdir: game
+godot_version: 4.6.3-stable
+
+test_command: dotnet test
+
+issue_scene:
+  scene:  test/scenes/issue_{n}.tscn
+  script: test/scenes/Issue{n}.cs
+  class:  Issue{n}
+
+gate:
+  proof: true
+  extra_clauses: []

@@ -30,7 +30,8 @@ agent via the `AGENT_CMD` seam — production = `scripts/agent_real.sh` (`claude
 signal (pass→Ready PR, timeout→Draft+`needs-rerun`, gate-red/block→Draft+`blocked`), and on a fix
 run verifies every thread got a bot reply. **Phase 5 (review-setup, host):** `bash scripts/review_setup.sh <issue#>` makes an
 isolated `git worktree` on `agent/issue-<n>`, provisions the gitignored `godot_ai` addon into it,
-and opens the local Godot editor (`GODOT_BIN`/extracted zip) — then hands off. The human runs their
+and opens the local Godot editor (`GODOT_BIN`/extracted zip) **& the human's IDE (`IDE_BIN`; `--no-ide`
+to skip)** — then hands off. The human runs their
 own AI session **as `rkibistu`** (the bot is local only because we're testing; in real use it lives
 only in the container) and posts review comments in the GitHub UI; the bot's Fix run picks them up.
 No LLM → credit-free; the editor-window launch is a manual eyeball. **Repo cleanup (2026-06-24):**
@@ -38,12 +39,23 @@ the credit-free proof suite (`phase{2,3,4a,4c,5}_proof.sh` + the `agent_stub`/`a
 agents + `agent_mcp_smoke.sh` + Phase-1 `binary_proof.sh`/`smoke.sh`) and the dead `mcp_cs_*.sh`
 were **removed** in a production-only strip — each was proven PASS at the time (see the build log).
 **Restore from commit `fd72b70`** (`git checkout fd72b70 -- scripts/<name>.sh`) to re-run any
-regression, e.g. before the Phase-7 refactor. **Next: Phase 6 (merge — likely just the GitHub squash-merge UI;
-`Closes #n` auto-closes) → Phase 7 (harness extraction: `--repo` + `.igloo.yml`, the
-decided-but-deferred "shared harness pointed at any repo" model).** Scope cuts still open:
-throttle-signature detection **deferred**; the one paid `claude -p` fix acceptance run is the
-**user's to fire** (`bash scripts/agent_run_host.sh <issue#>`). Dev image:
-`godot-ai-igloo:dev` (built from `docker/`); game seed in `game/`; secrets via a gitignored
-`.env` (template `.env.example`); bot `justfortest1234`, human reviewer `rkibistu`
+regression, e.g. before the Phase-7 refactor. **Phase 7 (harness extraction) is BUILT
+(2026-06-25) — deterministic plumbing proven credit-free.** The repo is now a global, install-once
+harness (`install.sh` → `~/.igloo/harness` + `bin/igloo` dispatcher) pointable at any Godot C# repo;
+per-game state is a committed, self-documenting `.igloo.yml` (parsed by `yq`, read via
+`scripts/lib/config.sh`; schema in `schema/igloo.schema.yml`, scaffold in `templates/`) + committed
+`.igloo/skills/`. The `godot_ai` addon is **vendored in the harness fixture** (`game/addons/godot_ai`
+now tracked) and provisioned into consumer games (which gitignore it). Constants are externalized
+(`IGLOO_REPO` + auto-detect; bot identity **derived** via `gh api user`; `IMG`→`:<godot_version>`;
+gate + agent prompt both read `.igloo.yml`; **per-run logs write to each game repo's gitignored
+`.igloo/runs/`** — relocated from the harness `runs/` 2026-06-29, so each game's logs/`.mp4` sit next
+to its code). Design + the load-bearing `.igloo.yml`-field rules:
+`docs/adr/0004`; staged build log + per-stage proofs: `plan_implementation.md` Phase 7. **Next:
+the user-fired binary proof — `igloo init` a second repo and drive `run→review→fix` end-to-end
+(deterministic parts credit-free with a fake `AGENT_CMD`; paid `claude -p` runs are the user's).**
+Scope cuts still open: throttle-signature detection **deferred**. Image:
+`godot-ai-igloo:<godot_version>` (e.g. `:4.6.3-stable`, `:dev` alias; built from `docker/`); fixture
+game in `game/`; **global** secrets in `~/.igloo/.env` (template `.env.example`; self-target falls
+back to the repo `.env`); one **global bot** (login derived from its token), human reviewer `rkibistu`
 (`CLAUDE_CODE_OAUTH_TOKEN` needed for real runs; `REVIEWER_GH_TOKEN` authors the non-bot review
 threads in the Phase-3 row-2 and Phase-4c fix fixtures).

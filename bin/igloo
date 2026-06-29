@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# igloo — the global dispatcher for the godot-ai-igloo harness (Phase 7 / ADR-0004).
+# Installed by install.sh: ~/.local/bin/igloo -> ~/.igloo/harness/bin/igloo (symlink). Run from
+# INSIDE a game repo. Resolves HARNESS_HOME (the harness clone), sources ~/.igloo/.env, walks up
+# from cwd for the game repo's .igloo.yml, and dispatches.
+#
+#   igloo init                 scaffold .igloo.yml + .igloo/skills/ + addon in the current repo
+#   igloo run <issue#>         one autonomous run (classify -> implement/fix -> gate -> PR)
+#   igloo review <issue#>      worktree + addon + open the Godot editor & IDE for review (--no-ide skips the IDE)
+#   igloo check                diff this repo's .igloo.yml against the schema (instruct-only)
+#   igloo build                build the toolchain image, tagged godot-ai-igloo:<godot_version>
+#   igloo update               git pull the harness (+ rebuild iff image inputs changed); instruct
+#   igloo addon install        (re)provision the godot_ai addon into this repo (explicit)
+#   igloo skills diff|update <name>   compare/refresh a per-game skill against the presets
+set -euo pipefail
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+HARNESS_HOME="$(cd "$(dirname "$SELF")/.." && pwd)"
+IGLOO_HOME="${IGLOO_HOME:-$HOME/.igloo}"
+ENV_FILE="${IGLOO_ENV:-$IGLOO_HOME/.env}"
+export PATH="$IGLOO_HOME/bin:$PATH"            # so the installer-fetched yq is found
+export IGLOO_HARNESS_HOME="$HARNESS_HOME"
+export IGLOO_ENV="$ENV_FILE"
+# shellcheck disable=SC1091
+source "$HARNESS_HOME/scripts/lib/config.sh"
+yq() { _igloo_yq "$@"; }                       # route all yq calls through config.sh's resolver
+
+die()  { echo "igloo: $*" >&2; exit 1; }
+warn() { echo "igloo: $*" >&2; }
+
+# Walk up from cwd to the game repo root (the dir holding .igloo.yml).
+find_project() {
+  local d="$PWD"
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    [ -f "$d/.igloo.yml" ] && { printf '%s' "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  return 1
+}
+require_project() { find_project || die "no .igloo.yml found from $PWD — run 'igloo init' in your game repo."; }
+
+slug_from_remote() {  # $1 = repo dir -> owner/name (or empty)
+  git -C "$1" remote get-url origin 2>/dev/null \
+    | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##'
+}
+
+# ── igloo run / review : point the existing host scripts at the resolved game repo ──
+cmd_run() {
+  local p; p="$(require_project)"
+  IGLOO_PROJECT_DIR="$p" exec bash "$HARNESS_HOME/scripts/agent_run_host.sh" "$@"
+}
+cmd_review() {
+  local p; p="$(require_project)"
+  IGLOO_PROJECT_DIR="$p" exec bash "$HARNESS_HOME/scripts/review_setup.sh" "$@"
+}
+
+# ── igloo build : tag by the project's godot_version (or the default) ──
+cmd_build() {
+  local gv p
+  if p="$(find_project 2>/dev/null)"; then export IGLOO_CONFIG_START="$p"; gv="$(cfg_get .godot_version 4.6.3-stable)"
+  else gv="${1:-4.6.3-stable}"; fi
+  GODOT_VERSION="$gv" exec bash "$HARNESS_HOME/docker/build.sh"
+}
+
+# ── igloo init : scaffold igloo's own files; validate-and-instruct the rest. Never breaks a build. ──
+cmd_init() {
+  local repo="$PWD"
+  [ -d "$repo/.git" ] || warn "current dir is not a git repo root — 'repo' auto-detect needs a git remote."
+  # detect the Godot project dir (where project.godot lives), relative to repo root
+  local pg subdir
+  pg="$(find "$repo" -maxdepth 3 -name project.godot -not -path '*/addons/*' 2>/dev/null | head -1)"
+  [ -n "$pg" ] || die "no project.godot found under $repo (max depth 3) — is this a Godot project?"
+  subdir="$(dirname "$pg")"; subdir="${subdir#"$repo"}"; subdir="${subdir#/}"
+  [ -n "$subdir" ] || subdir="."
+  local slug; slug="$(slug_from_remote "$repo")"
+  local gver="${IGLOO_INIT_GODOT_VERSION:-4.6.3-stable}"
+  echo "igloo init: repo='${slug:-<none, will auto-detect>}' game_subdir='$subdir' godot_version='$gver'"
+
+  # 1) .igloo.yml from the template (do not clobber an existing one)
+  if [ -f "$repo/.igloo.yml" ]; then
+    echo "  .igloo.yml exists — leaving it (run 'igloo check' to validate it)."
+  else
+    sed -e "s#__REPO__#${slug}#" -e "s#__GAME_SUBDIR__#${subdir}#" -e "s#__GODOT_VERSION__#${gver}#" \
+      "$HARNESS_HOME/templates/igloo.yml.tmpl" > "$repo/.igloo.yml"
+    echo "  wrote .igloo.yml"
+  fi
+
+  # 2) seed .igloo/skills/ from the presets (never overwrite a hand-tuned skill)
+  mkdir -p "$repo/.igloo/skills"
+  local s
+  for s in "$HARNESS_HOME"/skills/*.md; do
+    [ -e "$s" ] || continue
+    local base; base="$(basename "$s")"
+    if [ -f "$repo/.igloo/skills/$base" ]; then echo "  .igloo/skills/$base exists — kept"
+    else cp "$s" "$repo/.igloo/skills/$base"; echo "  seeded .igloo/skills/$base"; fi
+  done
+
+  # 3) gitignore the provisioned addon in the CONSUMER game (kept out of PRs/history)
+  local gi="$repo/${subdir:+$subdir/}.gitignore"; [ "$subdir" = "." ] && gi="$repo/.gitignore"
+  local ign="/addons/godot_ai/"
+  if [ -f "$gi" ] && grep -qxF "$ign" "$gi"; then echo "  .gitignore already ignores $ign"
+  else printf '\n# godot_ai MCP addon — provisioned by the harness at runtime, not committed.\n%s\n' "$ign" >> "$gi"; echo "  appended $ign to ${gi#"$repo"/}"; fi
+
+  # 3b) gitignore the per-game run-log dir at the REPO ROOT (logs/transcripts/proof videos; never committed)
+  local rgi="$repo/.gitignore" rign="/.igloo/runs/"
+  if [ -f "$rgi" ] && grep -qxF "$rign" "$rgi"; then echo "  .gitignore already ignores $rign"
+  else printf '\n# igloo per-run logs (run.log, gate.log, proof/*.mp4) — written into the repo, not committed.\n%s\n' "$rign" >> "$rgi"; echo "  appended $rign to .gitignore"; fi
+
+  # 4) provision the addon locally (so the editor opens cleanly right now)
+  cmd_addon_install_dir "$repo" "$subdir"
+
+  # 5) gdUnit4: validate-and-instruct only (never mutate .csproj/project.godot)
+  echo
+  echo "── gdUnit4 checklist (the gate runs your test_command; ensure it works) ──"
+  if grep -rqi 'gdUnit4' "$repo/${subdir:+$subdir/}"*.csproj 2>/dev/null; then
+    echo "  ✓ a .csproj references gdUnit4"
+  else
+    echo "  • add gdUnit4.api + gdUnit4.test.adapter + Microsoft.NET.Test.Sdk to your test .csproj"
+    echo "    so 'dotnet test' runs (see the harness fixture game/GodotAiIgloo.csproj for versions)."
+  fi
+  echo
+  echo "igloo init: done. Next: review .igloo.yml, then 'igloo check', commit (.igloo.yml + .igloo/skills/),"
+  echo "  ensure the bot has push access, label an issue 'ready-for-agent', and 'igloo run <issue#>'."
+}
+
+# ── igloo addon install : (re)provision the addon into a project ──
+cmd_addon_install_dir() {  # $1 repo root, $2 game_subdir
+  local repo="$1" subdir="$2" src dst
+  src="$HARNESS_HOME/game/addons/godot_ai"
+  dst="$repo/${subdir:+$subdir/}addons/godot_ai"; [ "$subdir" = "." ] && dst="$repo/addons/godot_ai"
+  [ -d "$src" ] || die "addon source missing at $src (run 'igloo update'/'igloo build')."
+  mkdir -p "$(dirname "$dst")"
+  rm -rf "$dst"; cp -r "$src" "$dst"
+  echo "  provisioned godot_ai addon -> ${dst#"$repo"/}"
+}
+cmd_addon() {
+  case "${1:-install}" in
+    install) local p; p="$(require_project)"; export IGLOO_CONFIG_START="$p"
+             local sub; sub="$(cfg_get .game_subdir game)"; case "$sub" in __detect__|'') sub=".";; esac
+             cmd_addon_install_dir "$p" "$sub" ;;
+    *) die "usage: igloo addon install" ;;
+  esac
+}
+
+# ── igloo check : diff .igloo.yml against the schema; INSTRUCT, never write ──
+check_dir() {  # $1 = project dir
+  local p="$1" schema="$HARNESS_HOME/schema/igloo.schema.yml" cfg="$1/.igloo.yml"
+  [ -f "$cfg" ] || die "no .igloo.yml in $p"
+  local n i key req def added pv missing=0
+  n="$(yq '.fields | length' "$schema")"
+  echo "== igloo check: $cfg (schema v$(yq '.schema_version' "$schema")) =="
+  for ((i=0; i<n; i++)); do
+    key="$(yq ".fields[$i].key" "$schema")"
+    req="$(yq ".fields[$i].required" "$schema")"
+    def="$(yq ".fields[$i].default" "$schema")"
+    added="$(yq ".fields[$i].added_in" "$schema")"
+    pv="$(yq ".$key" "$cfg" 2>/dev/null)"
+    pv="${pv%%$'\n'*}"; pv="$(printf '%s' "$pv" | sed -E 's/[[:space:]]+#.*$//')"   # 1st line, drop trailing yaml comment
+    if [ -z "$pv" ] || [ "$pv" = "null" ]; then
+      if [ "$req" = "true" ]; then echo "  ✗ MISSING (required): $key — add it (default: $def)"; missing=$((missing+1))
+      else echo "  • absent: $key — will use default '$def' (added in v$added)"; fi
+    else
+      echo "  ✓ $key = $pv"
+    fi
+  done
+  # unknown keys (present in the file, not in the schema) — advisory
+  echo "$missing" > /dev/null
+  if [ "$missing" -gt 0 ]; then echo "igloo check: $missing required field(s) missing — edit $cfg."; return 1; fi
+  echo "igloo check: ok."
+}
+cmd_check() { local p; p="$(require_project)"; check_dir "$p"; }
+
+# ── igloo update : harness-only; pull + conditional rebuild + drift instruct. Writes NO project file. ──
+cmd_update() {
+  echo "== igloo update (harness) =="
+  # Dev installs symlink ~/.igloo/harness -> the working repo (install.sh --dev); never pull those.
+  if [ -L "$IGLOO_HOME/harness" ] || [ ! -d "$HARNESS_HOME/.git" ]; then
+    echo "  dev symlink / non-git harness — skipping git pull (edit the harness directly)."
+  else
+    local before after
+    before="$(git -C "$HARNESS_HOME" rev-parse HEAD)"
+    git -C "$HARNESS_HOME" pull --ff-only || warn "git pull failed (resolve manually)."
+    after="$(git -C "$HARNESS_HOME" rev-parse HEAD)"
+    if [ "$before" != "$after" ] && git -C "$HARNESS_HOME" diff --name-only "$before" "$after" | grep -q '^docker/'; then
+      echo "  docker/ changed -> rebuilding image"; ( cmd_build )
+    else
+      echo "  image inputs unchanged -> no rebuild."
+    fi
+  fi
+  # If we're in a project, INSTRUCT on config drift (read-only). Skills are never auto-migrated.
+  local p; if p="$(find_project 2>/dev/null)"; then echo; check_dir "$p" || true
+    echo "  (skills are not auto-updated — use 'igloo skills diff|update <name>'.)"
+  fi
+}
+
+# ── igloo skills diff|update <name> : explicit, opt-in skill refresh from the presets ──
+cmd_skills() {
+  local sub="${1:-}"; local name="${2:-}"
+  local p; p="$(require_project)"
+  [ -n "$name" ] || die "usage: igloo skills diff|update <name>  (e.g. fresh-implement)"
+  local preset="$HARNESS_HOME/skills/$name.md" proj="$p/.igloo/skills/$name.md"
+  [ -f "$preset" ] || die "no preset skill '$name' in the harness."
+  case "$sub" in
+    diff)   [ -f "$proj" ] || { echo "project has no .igloo/skills/$name.md (run 'igloo init')"; return 0; }
+            diff -u "$proj" "$preset" && echo "igloo skills: '$name' matches the preset." || true ;;
+    update) mkdir -p "$p/.igloo/skills"; cp "$preset" "$proj"; echo "igloo skills: overwrote .igloo/skills/$name.md with the preset." ;;
+    *) die "usage: igloo skills diff|update <name>" ;;
+  esac
+}
+
+usage() {
+  sed -n '2,14p' "$SELF" | sed 's/^# \{0,1\}//'
+}
+
+cmd="${1:-help}"; shift 2>/dev/null || true
+case "$cmd" in
+  run)     cmd_run "$@" ;;
+  review)  cmd_review "$@" ;;
+  init)    cmd_init "$@" ;;
+  check)   cmd_check "$@" ;;
+  build)   cmd_build "$@" ;;
+  update)  cmd_update "$@" ;;
+  addon)   cmd_addon "$@" ;;
+  skills)  cmd_skills "$@" ;;
+  help|-h|--help) usage ;;
+  *) echo "igloo: unknown command '$cmd'" >&2; usage; exit 64 ;;
+esac

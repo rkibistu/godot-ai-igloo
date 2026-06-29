@@ -7,10 +7,14 @@ replies in-thread. **GitHub is the single source of truth**; the container is am
 `--rm`. A deterministic script owns every state transition and objectively verifies the work —
 the LLM only writes code, commits, and in-thread replies. It never decides "am I done?".
 
-> Status: **Phases 1–5 complete** — the full inner loop runs end-to-end. Merge is a manual
-> GitHub action (Phase 6). Multi-repo support is the next build (Phase 7). See
-> [`plan_implementation.md`](plan_implementation.md) for the phased build + log, and
-> [`CONTEXT.md`](CONTEXT.md) for the canonical glossary.
+> Status: **Phases 1–5 complete; Phase 7 (multi-repo harness) built.** The full inner loop runs
+> end-to-end, and the harness is now installable globally (`install.sh` → `~/.igloo` + the `igloo`
+> dispatcher) and pointable at any Godot C# repo via a committed `.igloo.yml`. Merge stays a manual
+> GitHub action (Phase 6). The deterministic Phase-7 plumbing is proven credit-free; the end-to-end
+> binary proof against a fresh second repo is the user's to fire. See
+> [`plan_implementation.md`](plan_implementation.md) for the phased build + log,
+> [`docs/adr/0004`](docs/adr/0004-harness-extraction-integration-model.md) for the integration model,
+> and [`CONTEXT.md`](CONTEXT.md) for the canonical glossary.
 
 ---
 
@@ -92,8 +96,13 @@ cp .env.example .env
 #   GODOT_BIN / GODOT_ZIP   = host Godot for review-setup             [optional]
 ```
 
-> The target repo is currently hardcoded to `rkibistu/godot-ai-igloo` (`scripts/agent_run.sh`).
-> Pointing the harness at any repo via `--repo` + a per-repo config is the planned Phase-7 refactor.
+> **Multi-repo (Phase 7).** The per-script commands below self-target the bundled `game/` fixture.
+> To drive *any* Godot C# repo, install the harness once (`bash install.sh` → `~/.igloo/harness` +
+> the `igloo` dispatcher on your PATH; secrets go in `~/.igloo/.env`), then in the target repo run
+> `igloo init` (scaffolds a committed `.igloo.yml` + `.igloo/skills/` + the addon), and use
+> `igloo run <issue#>` / `igloo review <issue#>` / `igloo check` / `igloo update`. The mechanical
+> contract (repo, `game_subdir`, `godot_version`, `test_command`, Issue-scene paths, gate knobs)
+> lives only in `.igloo.yml`. See [`docs/adr/0004`](docs/adr/0004-harness-extraction-integration-model.md).
 
 ---
 
@@ -107,7 +116,8 @@ bash scripts/agent_run_host.sh <issue#>
 
 Spins a fresh `--rm` container, classifies the issue, prepares `agent/issue-<n>`, runs the real
 agent (`claude -p` + the Godot editor + `godot_ai` MCP), gates the result, and pushes a PR with
-the right signal. Per-run logs land in `runs/<issue>/<timestamp>/` (tee'd out of the container).
+the right signal. Per-run logs land in the **game repo's** gitignored `.igloo/runs/<issue>/<timestamp>/`
+(tee'd out of the container: `run.log`, `gate.log`, and `proof/issue_<n>.mp4`).
 
 The agent only proceeds on issues labeled **`ready-for-agent`** (set `AGENT_RUN_ASSUME_READY=1`
 to override). Useful knobs: `AGENT_TIMEOUT` (wall-clock cap, default ~45 min).
@@ -115,14 +125,17 @@ to override). Useful knobs: `AGENT_TIMEOUT` (wall-clock cap, default ~45 min).
 ### Review a PR locally
 
 ```bash
-bash scripts/review_setup.sh <issue#>            # worktree + addon + open the Godot editor
-bash scripts/review_setup.sh <issue#> --no-launch  # prep only, skip the editor
+bash scripts/review_setup.sh <issue#>            # worktree + addon + open the Godot editor & IDE
+bash scripts/review_setup.sh <issue#> --no-ide     # skip the IDE, still open the Godot editor
+bash scripts/review_setup.sh <issue#> --no-launch  # skip the Godot editor (combine with --no-ide for prep-only)
 bash scripts/review_setup.sh <issue#> --remove     # tear the review worktree down
 ```
 
 Creates an isolated `git worktree` on `agent/issue-<n>` (a sibling dir — never disturbs your
 working tree), provisions the gitignored `godot_ai` addon into it, and opens the host Godot
-editor. Then **you** drive: review the diff, and **post inline review comments as yourself
+editor **and your IDE** on the worktree. Set `IDE_BIN` in `.env` to your IDE executable (a bare
+PATH name like `IDE_BIN=code` works, or an absolute path; unset → auto-detect a VS Code CLI).
+Then **you** drive: review the diff, and **post inline review comments as yourself
 (`rkibistu`) in the GitHub UI**. The bot's next Fix run picks them up.
 
 > **Identity matters.** On the dev box the local `gh` session is the *bot* (for testing). In real

@@ -4,7 +4,9 @@
 # Build / run artifacts captured during validation
 proof/
 
-# Per-run agent logs (tee'd from the container via agent_run_host.sh)
+# Per-run agent logs (tee'd from the container) — now written into the game repo's .igloo/runs/.
+# Self-target writes them under the fixture here; the legacy top-level runs/ stays ignored too.
+/.igloo/runs/
 runs/
 
 # Host Godot binary extracted from the zip by review_setup.sh (Phase 5)
@@ -19,3 +21,7 @@ core
 **/.mono/
 **/bin/
 **/obj/
+
+# ...except the harness dispatcher dir at the repo root /bin/ (Phase 7) — it is NOT build output.
+!/bin/
+!/bin/igloo

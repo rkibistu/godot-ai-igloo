@@ -5,6 +5,9 @@
 bin/
 obj/
 *.csproj.user
-# Third-party addons: fetched at image-build time, not committed (like the prototype)
+# gdUnit4 editor addon: a project responsibility, not committed (dotnet test uses the NuGet
+# packages, not this editor addon). Consumer games handle gdUnit4 themselves (igloo init instructs).
 /addons/gdUnit4/
-/addons/godot_ai/
+# NOTE: godot_ai is VENDORED (committed) in THIS harness fixture — it is the single source the
+# harness provisions into consumer games at runtime (Phase 7 / ADR-0004 decision 9). Consumer
+# games DO gitignore it; this harness fixture must NOT — do not re-add a /addons/godot_ai/ line here.

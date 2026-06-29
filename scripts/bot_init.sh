@@ -5,14 +5,13 @@
 #
 # Expects GH_TOKEN already in env (the host wrapper maps BOT_GH_TOKEN -> GH_TOKEN;
 # `gh` reads GH_TOKEN natively, so no script ever handles the secret value). Sets the
-# bot's commit identity + HTTPS git credentials so pushes/PRs are authored as the bot
-# (justfortest1234), never as the human (rkibistu). Never prints the token.
+# bot's commit identity + HTTPS git credentials so pushes/PRs are authored as the bot,
+# never as the human reviewer. Never prints the token.
+#
+# Phase 7: the bot login/id are DERIVED from the authenticated token (`gh api user`), not
+# hardcoded — so one global bot works across all games and the identity cannot drift from the
+# token (ADR-0004 decision 5). Leaves $BOT_LOGIN / $BOT_EMAIL in scope for the caller.
 set -uo pipefail
-
-BOT_LOGIN="justfortest1234"
-# GitHub noreply: <id>+<login>@users.noreply.github.com — attributes commits to the bot
-# without exposing a real email (the bot has no public email set).
-BOT_EMAIL="142491623+justfortest1234@users.noreply.github.com"
 
 [ -n "${GH_TOKEN:-}" ] || { echo "bot_init: GH_TOKEN unset (map BOT_GH_TOKEN -> GH_TOKEN via docker run -e)" >&2; return 1 2>/dev/null || exit 1; }
 
@@ -20,15 +19,17 @@ BOT_EMAIL="142491623+justfortest1234@users.noreply.github.com"
 # (also baked into the image; this is the belt-and-suspenders for non-rebuilt images).
 export IS_SANDBOX=1
 
+# Derive identity from the token (one call -> login + numeric id). This also validates the token.
+read -r BOT_LOGIN BOT_ID <<<"$(gh api user --jq '"\(.login) \(.id)"' 2>/dev/null)"
+[ -n "${BOT_LOGIN:-}" ] || { echo "bot_init: 'gh api user' returned no login (bad/expired GH_TOKEN?)" >&2; return 1 2>/dev/null || exit 1; }
+# GitHub noreply: <id>+<login>@users.noreply.github.com — attributes commits to the bot
+# without exposing a real email (the bot need not have a public email set).
+BOT_EMAIL="${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
+
 git config --global user.name  "$BOT_LOGIN"
 git config --global user.email "$BOT_EMAIL"
 
 # Route git's HTTPS auth for github.com through the bot token (no SSH key in-container).
 gh auth setup-git
 
-WHOAMI="$(gh api user -q .login 2>/dev/null || true)"
-if [ "$WHOAMI" != "$BOT_LOGIN" ]; then
-  echo "bot_init: authenticated as '${WHOAMI:-<none>}', expected '$BOT_LOGIN'" >&2
-  return 1 2>/dev/null || exit 1
-fi
 echo "bot_init: identity wired — $BOT_LOGIN <$BOT_EMAIL>"

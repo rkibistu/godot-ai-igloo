@@ -14,13 +14,16 @@
 #   pass -> Ready PR (Closes #n) · timeout -> Draft+needs-rerun · block/gate-fail -> Draft+blocked.
 #
 # Exit codes: 0 ok/early-exit · 64 usage/missing-issue · 65 refuse (closed-unmerged PR)
-#   · 66 stopped at soft label gate · 70 internal · 75 transient (merge conflict).
+#   · 66 stopped at soft label gate · 70 internal/environment (auth, network, repo access) · 75 transient.
 set -uo pipefail
 
 ISSUE="${1:-}"
 case "$ISSUE" in ''|*[!0-9]*) echo "agent_run: usage: agent_run.sh <issue-number>" >&2; exit 64;; esac
 
-REPO="rkibistu/godot-ai-igloo"
+# Target repo is a PRE-CLONE fact, so it comes from the host launcher via env (the host resolves
+# it from the game repo's .igloo.yml / git remote). Post-clone facts (game_subdir, scene paths,
+# test command) are read from the committed .igloo.yml AFTER the clone — see below.
+REPO="${IGLOO_REPO:?agent_run: IGLOO_REPO unset (the host launcher must pass the owner/name slug)}"
 OWNER="${REPO%/*}"; NAME="${REPO#*/}"
 REPO_URL="https://github.com/${REPO}.git"
 BRANCH="agent/issue-${ISSUE}"
@@ -35,7 +38,7 @@ echo "== agent-run #$ISSUE @ $(date -u +%FT%TZ) =="
 
 # --- identity + HTTPS auth (single source of the bot login/email) ---
 # shellcheck disable=SC1091
-source /scripts/bot_init.sh || { echo "agent_run: bot_init failed (GH_TOKEN unset?)"; exit 70; }
+source /scripts/bot_init.sh || { echo "agent_run: bot_init failed — see the bot_init message above (usually a missing/invalid/expired BOT_GH_TOKEN)." >&2; exit 70; }
 # bot_init exports nothing but, sourced, leaves $BOT_LOGIN / $BOT_EMAIL in scope.
 
 # --- helpers -----------------------------------------------------------------
@@ -130,10 +133,57 @@ classify_from_facts() {  # $1 issue_state $2 pr_state $3 pr_draft $4 has_thread 
   if [ "$branch" = "true" ]; then echo resume-fresh; else echo fresh; fi
 }
 
+# --- diagnose a failed issue probe -------------------------------------------
+# Pinpoints WHY `gh issue view` failed instead of collapsing every cause into "not
+# found". A positive ladder (rate-limit -> token/network -> repo access -> issue-vs-PR
+# -> genuinely-absent) so the message names the ACTUAL problem. The token is already
+# validated by bot_init, so the common real causes here are a wrong `repo:` slug or the
+# bot lacking access. Only ever reached on the failure path; always exits.
+diagnose_issue_probe() {  # $1 = stderr captured from the failed gh issue view
+  local gherr="$1" who flat
+  flat="$(printf '%s' "$gherr" | tr '\n' ' ')"
+
+  if printf '%s' "$flat" | grep -qiE 'rate limit|secondary rate|abuse detection'; then
+    echo "agent_run: GitHub rate-limited this request — wait a bit and rerun." >&2
+    [ -n "$flat" ] && echo "  gh said: $flat" >&2
+    exit 70
+  fi
+
+  # token still good? (bot_init validated it; a failure here = revoked/expired or network/DNS)
+  if ! who="$(gh api user --jq .login 2>/dev/null)" || [ -z "$who" ]; then
+    echo "agent_run: lost GitHub API access (BOT_GH_TOKEN revoked/expired, or network/DNS down)." >&2
+    [ -n "$flat" ] && echo "  gh said: $flat" >&2
+    exit 70
+  fi
+
+  # repo reachable as this bot?
+  if ! gh repo view "$REPO" --json name >/dev/null 2>&1; then
+    echo "agent_run: repo '$REPO' does not exist, or the bot ($who) has no access to it." >&2
+    echo "  Fix: check 'repo:' (owner/name) in the game's .igloo.yml, and that $who is a collaborator with push access." >&2
+    exit 70
+  fi
+
+  # the number is a PR, not an issue?
+  if gh pr view "$ISSUE" --repo "$REPO" --json number >/dev/null 2>&1; then
+    echo "agent_run: #$ISSUE in $REPO is a PULL REQUEST, not an issue — pass an issue number." >&2
+    exit 64
+  fi
+
+  # genuinely no such issue
+  echo "agent_run: issue #$ISSUE does not exist in $REPO (bot $who is authenticated; the repo is reachable)." >&2
+  [ -n "$flat" ] && echo "  gh said: $flat" >&2
+  exit 64
+}
+
 # --- probes (no clone — git ls-remote + gh query the remote directly) --------
 echo "== probe =="
-ISTATE="$(gh issue view "$ISSUE" --repo "$REPO" --json state --jq .state 2>/dev/null || echo MISSING)"
-[ "$ISTATE" = "MISSING" ] && { echo "agent_run: issue #$ISSUE not found in $REPO." >&2; exit 64; }
+_IERR="$(mktemp)"
+ISTATE="$(gh issue view "$ISSUE" --repo "$REPO" --json state --jq .state 2>"$_IERR")" || ISTATE=""
+if [ -z "$ISTATE" ] || [ "$ISTATE" = "null" ]; then
+  _msg="$(cat "$_IERR")"; rm -f "$_IERR"
+  diagnose_issue_probe "$_msg"   # prints the precise cause, then exits
+fi
+rm -f "$_IERR"
 
 # Most-recent PR (by number) whose head is our branch, across all states.
 PRLINE="$(gh pr list --repo "$REPO" --head "$BRANCH" --state all \
@@ -186,6 +236,18 @@ rm -rf "$PROJ"
 git clone --quiet "$REPO_URL" "$PROJ"
 cd "$PROJ"
 
+# --- post-clone config: the committed .igloo.yml is the single source for game_subdir / scene
+# paths / test command, read by BOTH this spine (here) and the gate + agent later (same file,
+# so they cannot drift). Export IGLOO_CONFIG so every downstream reader uses this exact file. ---
+export IGLOO_CONFIG="$PROJ/.igloo.yml"
+[ -f "$IGLOO_CONFIG" ] || { echo "agent_run: $REPO has no .igloo.yml at its root — run 'igloo init' in that repo." >&2; exit 64; }
+# shellcheck disable=SC1091
+source /scripts/lib/config.sh
+GAME_SUBDIR="$(cfg_get .game_subdir game)"
+case "$GAME_SUBDIR" in ''|.|__detect__) GAME_SUBDIR="";; esac
+GAME_DIR="$PROJ${GAME_SUBDIR:+/$GAME_SUBDIR}"; PROJECT_DIR="$GAME_DIR"
+echo "agent_run: game project dir = $GAME_DIR"
+
 echo "== prepare branch ($CLASS) =="
 case "$CLASS" in
   fresh)
@@ -212,10 +274,10 @@ esac
 # error grep trips. The real agent (agent_real.sh) also needs the bridge up for MCP.
 # Provision it ONCE here, from the host read-only mount, so the gate is robust for ANY
 # AGENT_CMD (real/fake/stub). It is gitignored -> never enters the agent's commit/PR.
-if [ ! -d "$PROJ/game/addons/godot_ai" ] && [ -d /opt/godot_ai ]; then
+if [ ! -d "$GAME_DIR/addons/godot_ai" ] && [ -d /opt/godot_ai ]; then
   echo "== provision godot_ai addon from /opt/godot_ai =="
-  mkdir -p "$PROJ/game/addons"
-  cp -r /opt/godot_ai "$PROJ/game/addons/godot_ai"
+  mkdir -p "$GAME_DIR/addons"
+  cp -r /opt/godot_ai "$GAME_DIR/addons/godot_ai"
 fi
 
 # --- gather payload ----------------------------------------------------------
@@ -254,11 +316,10 @@ fi
 # --- invoke the agent under a wall-clock cap (AGENT_CMD is the seam) ----------
 # AGENT_CMD is a script PATH, run via bash (bind-mounted scripts are 0644, not +x).
 AGENT_TIMEOUT="${AGENT_TIMEOUT:-2700}"     # ~45 min cap (env-tunable); 4b wires real Claude
-# The Godot project is the repo's game/ subdir; /project is the cloned repo (git) root.
-GAME_DIR="$PROJ/game"; PROJECT_DIR="$GAME_DIR"
+# GAME_DIR / PROJECT_DIR were resolved post-clone from .igloo.yml's game_subdir (see above).
 PROOF_DIR="$RUNS_DIR/proof"; mkdir -p "$PROOF_DIR"
 echo "== invoke agent: $AGENT_CMD (timeout ${AGENT_TIMEOUT}s) =="
-export REPO OWNER NAME BRANCH PR_NUM BOT_LOGIN RUNS_DIR CLASS ISSUE PROOF_DIR GAME_DIR PROJECT_DIR
+export REPO OWNER NAME BRANCH PR_NUM BOT_LOGIN RUNS_DIR CLASS ISSUE PROOF_DIR GAME_DIR PROJECT_DIR GAME_SUBDIR IGLOO_CONFIG
 TIMED_OUT=0
 timeout "$AGENT_TIMEOUT" bash "$AGENT_CMD" "$ISSUE" "$CLASS" "$PAYLOAD"
 AGENT_RC=$?
