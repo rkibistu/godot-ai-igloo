@@ -125,14 +125,17 @@ to override). Useful knobs: `AGENT_TIMEOUT` (wall-clock cap, default ~45 min).
 ### Review a PR locally
 
 ```bash
-bash scripts/review_setup.sh <issue#>            # worktree + addon + open the Godot editor
-bash scripts/review_setup.sh <issue#> --no-launch  # prep only, skip the editor
+bash scripts/review_setup.sh <issue#>            # worktree + addon + open the Godot editor & IDE
+bash scripts/review_setup.sh <issue#> --no-ide     # skip the IDE, still open the Godot editor
+bash scripts/review_setup.sh <issue#> --no-launch  # skip the Godot editor (combine with --no-ide for prep-only)
 bash scripts/review_setup.sh <issue#> --remove     # tear the review worktree down
 ```
 
 Creates an isolated `git worktree` on `agent/issue-<n>` (a sibling dir — never disturbs your
 working tree), provisions the gitignored `godot_ai` addon into it, and opens the host Godot
-editor. Then **you** drive: review the diff, and **post inline review comments as yourself
+editor **and your IDE** on the worktree. Set `IDE_BIN` in `.env` to your IDE executable (a bare
+PATH name like `IDE_BIN=code` works, or an absolute path; unset → auto-detect a VS Code CLI).
+Then **you** drive: review the diff, and **post inline review comments as yourself
 (`rkibistu`) in the GitHub UI**. The bot's next Fix run picks them up.
 
 > **Identity matters.** On the dev box the local `gh` session is the *bot* (for testing). In real

@@ -6,7 +6,7 @@
 #
 #   igloo init                 scaffold .igloo.yml + .igloo/skills/ + addon in the current repo
 #   igloo run <issue#>         one autonomous run (classify -> implement/fix -> gate -> PR)
-#   igloo review <issue#>      worktree + addon + open the Godot editor for human review
+#   igloo review <issue#>      worktree + addon + open the Godot editor & IDE for review (--no-ide skips the IDE)
 #   igloo check                diff this repo's .igloo.yml against the schema (instruct-only)
 #   igloo build                build the toolchain image, tagged godot-ai-igloo:<godot_version>
 #   igloo update               git pull the harness (+ rebuild iff image inputs changed); instruct

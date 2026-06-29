@@ -30,7 +30,8 @@ agent via the `AGENT_CMD` seam — production = `scripts/agent_real.sh` (`claude
 signal (pass→Ready PR, timeout→Draft+`needs-rerun`, gate-red/block→Draft+`blocked`), and on a fix
 run verifies every thread got a bot reply. **Phase 5 (review-setup, host):** `bash scripts/review_setup.sh <issue#>` makes an
 isolated `git worktree` on `agent/issue-<n>`, provisions the gitignored `godot_ai` addon into it,
-and opens the local Godot editor (`GODOT_BIN`/extracted zip) — then hands off. The human runs their
+and opens the local Godot editor (`GODOT_BIN`/extracted zip) **& the human's IDE (`IDE_BIN`; `--no-ide`
+to skip)** — then hands off. The human runs their
 own AI session **as `rkibistu`** (the bot is local only because we're testing; in real use it lives
 only in the container) and posts review comments in the GitHub UI; the bot's Fix run picks them up.
 No LLM → credit-free; the editor-window launch is a manual eyeball. **Repo cleanup (2026-06-24):**

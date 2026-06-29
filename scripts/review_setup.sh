@@ -4,7 +4,7 @@
 # branch (agent/issue-<n>), provisions the gitignored godot_ai addon into it, and opens the
 # local Godot editor on it. Then hands off.
 #
-#   bash scripts/review_setup.sh <issue-number> [--no-launch] [--remove]
+#   bash scripts/review_setup.sh <issue-number> [--no-launch] [--no-ide] [--remove]
 #
 # No container, no LLM, no credits. This is the HUMAN's machine: in real use your gh/AI
 # session is the reviewer (rkibistu); the bot (justfortest1234) lives only in the sandbox.
@@ -38,15 +38,16 @@ GODOT_CACHE="$HARNESS_HOME/.tools/godot"            # where the zip is extracted
 # GODOT_BIN may be set in .env to point at any host Godot mono binary directly.
 # ────────────────────────────────────────────────────────────────────────────────────────
 
-ISSUE=""; NO_LAUNCH=0; REMOVE=0
+ISSUE=""; NO_LAUNCH=0; NO_IDE=0; REMOVE=0
 for arg in "$@"; do
   case "$arg" in
     --no-launch) NO_LAUNCH=1 ;;
+    --no-ide)    NO_IDE=1 ;;
     --remove)    REMOVE=1 ;;
     *)           ISSUE="$arg" ;;
   esac
 done
-case "$ISSUE" in ''|*[!0-9]*) echo "usage: bash scripts/review_setup.sh <issue-number> [--no-launch] [--remove]" >&2; exit 64;; esac
+case "$ISSUE" in ''|*[!0-9]*) echo "usage: bash scripts/review_setup.sh <issue-number> [--no-launch] [--no-ide] [--remove]" >&2; exit 64;; esac
 
 BRANCH="agent/issue-${ISSUE}"
 WT="$REVIEW_WORKTREE_DIR/issue-${ISSUE}"
@@ -104,6 +105,31 @@ fi
 GAME_DIR="$WT_GAME"
 echo "review-setup: worktree ready at $WT"
 
+# ── launch the IDE on the worktree root (unless --no-ide) ──
+# IDE_BIN (set in .env) is the editor executable: an absolute path OR a bare name on PATH
+# (e.g. IDE_BIN=code) — both resolve via `command -v`. If unset, auto-detect a VS Code CLI.
+# Opens the worktree ROOT (the whole branch checkout), not just the game subdir. This runs
+# BEFORE the Godot-editor block, which can exit early when no host Godot binary is found.
+if [ "$NO_IDE" = 1 ]; then
+  echo "review-setup: --no-ide — skipping the IDE."
+else
+  IDE_RESOLVED="${IDE_BIN:-}"
+  if [ -z "$IDE_RESOLVED" ]; then
+    for _c in code codium code-insiders; do
+      command -v "$_c" >/dev/null 2>&1 && { IDE_RESOLVED="$_c"; break; }
+    done
+  fi
+  if [ -n "$IDE_RESOLVED" ] && command -v "$IDE_RESOLVED" >/dev/null 2>&1; then
+    echo "== launch IDE: $IDE_RESOLVED $WT =="
+    mkdir -p "$LOGS_DIR"
+    nohup "$IDE_RESOLVED" "$WT" >"$LOGS_DIR/review-issue-${ISSUE}.ide.log" 2>&1 &
+    echo "review-setup: IDE launching (pid $!); log -> .igloo/runs/review-issue-${ISSUE}.ide.log"
+  else
+    echo "review-setup: no IDE found — set IDE_BIN in .env (e.g. IDE_BIN=code), or pass --no-ide to silence this." >&2
+    echo "  Worktree is ready at $WT; open it in your IDE manually." >&2
+  fi
+fi
+
 # ── launch the host Godot editor (unless --no-launch) ──
 if [ "$NO_LAUNCH" = 1 ]; then
   echo "review-setup: --no-launch — skipping editor."
@@ -136,8 +162,9 @@ cat <<EOF
 ── review #$ISSUE ───────────────────────────────────────────
 worktree : $WT
 project  : $GAME_DIR
-Next: open your IDE here, start your AI session AS THE REVIEWER (rkibistu, not the bot),
-and post review comments in the GitHub UI — the bot's Fix run will pick them up.
+Next: in your IDE + the Godot editor (now open on this worktree), start your AI session
+AS THE REVIEWER (rkibistu, not the bot), and post review comments in the GitHub UI — the
+bot's Fix run will pick them up.
 Clean up when done:  bash scripts/review_setup.sh $ISSUE --remove
 ─────────────────────────────────────────────────────────────
 EOF
